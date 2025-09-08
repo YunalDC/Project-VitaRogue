@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
+  Image,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -10,13 +11,22 @@ import {
   ScrollView,
   Dimensions,
   SafeAreaView,
+  Keyboard,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import Icon from "react-native-vector-icons/Ionicons";
 import { signIn } from "../lib/auth";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
+
+// Light-green accent
+const ACCENT = "#34d399";
+const ACCENT_DARK = "#10b981";
+
+// Responsive logo size (100–160, ~35% of width)
+const LOGO_SIZE = Math.min(160, Math.max(100, Math.round(width * 0.35)));
 
 export default function SignInScreen({ navigation }) {
   const [email, setEmail] = useState("");
@@ -25,6 +35,21 @@ export default function SignInScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Track keyboard visibility (Android)
+  const [kbVisible, setKbVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () =>
+      setKbVisible(true)
+    );
+    const hide = Keyboard.addListener("keyboardDidHide", () =>
+      setKbVisible(false)
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   const onSignIn = async () => {
     if (!email.trim() || !pw.trim()) {
@@ -44,350 +69,314 @@ export default function SignInScreen({ navigation }) {
     }
   };
 
+  const Content = (
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      {/* Center when keyboard hidden; top-align when visible (Android only) */}
+      <View
+        style={[
+          styles.centerWrap,
+          Platform.OS === "android" &&
+            (kbVisible ? styles.topAligned : styles.centerAligned),
+        ]}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Image
+            source={require("../../assets/logo.png")}
+            style={[styles.logoImage, { width: LOGO_SIZE, height: LOGO_SIZE }]}
+            resizeMode="contain"
+          />
+          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.subtitle}>Ready to crush your goals?</Text>
+        </View>
+
+        {/* Form */}
+        <View style={styles.formContainer}>
+          {/* Email */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Email Address</Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                emailFocused && styles.inputWrapperFocused,
+              ]}
+            >
+              <Icon
+                name="mail-outline"
+                size={20}
+                color={emailFocused ? ACCENT : "#8e8e93"}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                onFocus={() => setEmailFocused(true)}
+                onBlur={() => setEmailFocused(false)}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                placeholder="your.email@example.com"
+                placeholderTextColor="#8e8e93"
+                style={styles.textInput}
+                autoComplete="email"
+                returnKeyType="next"
+              />
+            </View>
+          </View>
+
+          {/* Password */}
+          <View style={styles.inputContainer}>
+            <Text style={styles.label}>Password</Text>
+            <View
+              style={[
+                styles.inputWrapper,
+                passwordFocused && styles.inputWrapperFocused,
+              ]}
+            >
+              <Icon
+                name="lock-closed-outline"
+                size={20}
+                color={passwordFocused ? ACCENT : "#8e8e93"}
+                style={styles.inputIcon}
+              />
+              <TextInput
+                value={pw}
+                onChangeText={setPw}
+                onFocus={() => setPasswordFocused(true)}
+                onBlur={() => setPasswordFocused(false)}
+                secureTextEntry={!showPw}
+                placeholder="Enter your password"
+                placeholderTextColor="#8e8e93"
+                style={styles.textInput}
+                autoComplete="password"
+                returnKeyType="go"
+                onSubmitEditing={onSignIn}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPw(!showPw)}
+                style={styles.eyeButton}
+                activeOpacity={0.7}
+              >
+                <Icon
+                  name={showPw ? "eye-outline" : "eye-off-outline"}
+                  size={20}
+                  color="#8e8e93"
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Forgot */}
+          <Text
+            style={[styles.linkText, { textAlign: "center", marginVertical: 8 }]}
+            onPress={() => navigation.navigate("ForgotPassword")}
+          >
+            Forgot Password?
+          </Text>
+
+          {/* Sign In */}
+          <TouchableOpacity
+            onPress={onSignIn}
+            style={[styles.signInButton, loading && styles.buttonDisabled]}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={loading ? ["#666", "#666"] : [ACCENT, ACCENT_DARK]}
+              style={styles.buttonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? "Signing In..." : "Sign In"}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View style={styles.dividerContainer}>
+            <View style={styles.divider} />
+            <Text style={styles.dividerText}>or</Text>
+            <View style={styles.divider} />
+          </View>
+
+          {/* Social */}
+          <View style={styles.socialContainer}>
+            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
+              <Icon name="logo-google" size={20} color="#db4437" />
+              <Text style={styles.socialButtonText}>Google</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
+              <Icon name="logo-apple" size={20} color="#000" />
+              <Text style={styles.socialButtonText}>Apple</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footerBlock}>
+          <View style={styles.footerRow}>
+            <Text style={styles.footerText}>Don't have an account? </Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("SignUp")}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.linkText}>Create one</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate("CoachSignUp")}
+            activeOpacity={0.7}
+            style={{ marginTop: 6 }}
+          >
+            <Text style={styles.linkText}>Join as a coach</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </ScrollView>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      <LinearGradient
-        colors={["#1a1a2e", "#16213e", "#0f3460"]}
-        style={styles.gradient}
-      >
-        <KeyboardAvoidingView
-          style={styles.keyboardView}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <LinearGradient
+          colors={["#1a1a2e", "#16213e", "#0f3460"]}
+          style={styles.gradient}
         >
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            {/* Header Section */}
-            <View style={styles.header}>
-              <View style={styles.logoContainer}>
-                <LinearGradient
-                  colors={["#ff6b6b", "#ee5a24"]}
-                  style={styles.logoGradient}
-                >
-                  <Icon name="barbell" size={32} color="white" />
-                </LinearGradient>
-              </View>
-              <Text style={styles.title}>Welcome Back</Text>
-              <Text style={styles.subtitle}>Ready to crush your goals?</Text>
-            </View>
-
-            {/* Form Section */}
-            <View style={styles.formContainer}>
-              {/* Email Input */}
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Email Address</Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    emailFocused && styles.inputWrapperFocused,
-                  ]}
-                >
-                  <Icon
-                    name="mail-outline"
-                    size={20}
-                    color={emailFocused ? "#ff6b6b" : "#8e8e93"}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    onFocus={() => setEmailFocused(true)}
-                    onBlur={() => setEmailFocused(false)}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    placeholder="your.email@example.com"
-                    placeholderTextColor="#8e8e93"
-                    style={styles.textInput}
-                    autoComplete="email"
-                  />
-                </View>
-              </View>
-
-              {/* Password Input */}
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>Password</Text>
-                <View
-                  style={[
-                    styles.inputWrapper,
-                    passwordFocused && styles.inputWrapperFocused,
-                  ]}
-                >
-                  <Icon
-                    name="lock-closed-outline"
-                    size={20}
-                    color={passwordFocused ? "#ff6b6b" : "#8e8e93"}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    value={pw}
-                    onChangeText={setPw}
-                    onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => setPasswordFocused(false)}
-                    secureTextEntry={!showPw}
-                    placeholder="Enter your password"
-                    placeholderTextColor="#8e8e93"
-                    style={styles.textInput}
-                    autoComplete="password"
-                  />
-                  <TouchableOpacity
-                    onPress={() => setShowPw(!showPw)}
-                    style={styles.eyeButton}
-                    activeOpacity={0.7}
-                  >
-                    <Icon
-                      name={showPw ? "eye-outline" : "eye-off-outline"}
-                      size={20}
-                      color="#8e8e93"
-                    />
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Forgot Password */}
-              <TouchableOpacity style={styles.forgotPassword} activeOpacity={0.7}>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-              </TouchableOpacity>
-
-              {/* Sign In Button */}
-              <TouchableOpacity
-                onPress={onSignIn}
-                style={[styles.signInButton, loading && styles.buttonDisabled]}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={loading ? ["#666", "#666"] : ["#ff6b6b", "#ee5a24"]}
-                  style={styles.buttonGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                >
-                  {loading ? (
-                    <View style={styles.loadingContainer}>
-                      <Text style={styles.buttonText}>Signing In...</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.buttonText}>Sign In</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.divider} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.divider} />
-              </View>
-
-              {/* Social Login Options */}
-              <View style={styles.socialContainer}>
-                <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-                  <Icon name="logo-google" size={20} color="#db4437" />
-                  <Text style={styles.socialButtonText}>Google</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-                  <Icon name="logo-apple" size={20} color="#000" />
-                  <Text style={styles.socialButtonText}>Apple</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Footer */}
-            <View style={styles.footerSection}>
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>Don't have an account? </Text>
-
-                {/* Highlighted "Join the gym" chip */}
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("SignUp")}
-                  activeOpacity={0.9}
-                  style={styles.joinChip}
-                >
-                  <LinearGradient
-                    colors={["#ff6b6b", "#ee5a24"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.joinChipBg}
-                  >
-                    <Text style={styles.joinChipText}>Join the gym</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-
-              {/* "Join as a coach" link directly below */}
-              <View style={styles.coachFooter}>
-                <TouchableOpacity
-                  onPress={() => navigation.navigate("CoachSignUp")} // adjust to your route name
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.coachLinkText}>Join as a coach</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </LinearGradient>
+          {Platform.OS === "ios" ? (
+            <KeyboardAvoidingView style={styles.keyboardView} behavior="padding">
+              {Content}
+            </KeyboardAvoidingView>
+          ) : (
+            <View style={styles.keyboardView}>{Content}</View>
+          )}
+        </LinearGradient>
+      </TouchableWithoutFeedback>
     </SafeAreaView>
   );
 }
 
 const styles = {
-  container: {
-    flex: 1,
-  },
-  gradient: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
+  container: { flex: 1 },
+  gradient: { flex: 1 },
+  keyboardView: { flex: 1 },
+
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === "ios" ? 20 : 40,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
-  header: {
-    alignItems: "center",
-    marginBottom: 40,
-    paddingTop: 20,
-  },
-  logoContainer: {
-    marginBottom: 24,
-  },
-  logoGradient: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#ff6b6b",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
+
+  centerWrap: { flexGrow: 1, alignItems: "stretch" },
+  centerAligned: { justifyContent: "center" },
+  topAligned: { justifyContent: "flex-start" },
+
+  header: { alignItems: "center", marginBottom: 20 },
+  logoImage: { marginBottom: 10 },
   title: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: "bold",
     color: "white",
-    marginBottom: 8,
+    marginBottom: 4,
     textAlign: "center",
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#a8a8a8",
     textAlign: "center",
     fontWeight: "400",
+    marginBottom: 12,
   },
-  formContainer: {
-    flex: 1,
-  },
-  inputContainer: {
-    marginBottom: 20,
-  },
+
+  formContainer: { width: "100%", alignSelf: "center" },
+  inputContainer: { marginBottom: 12 },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     color: "#ffffff",
-    marginBottom: 8,
+    marginBottom: 6,
     marginLeft: 4,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.10)",
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
-    paddingHorizontal: 16,
-    height: 56,
+    borderColor: "rgba(255, 255, 255, 0.18)",
+    paddingHorizontal: 14,
+    height: 52,
   },
   inputWrapperFocused: {
-    borderColor: "#ff6b6b",
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
-    shadowColor: "#ff6b6b",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
+    borderColor: ACCENT,
+    backgroundColor: "rgba(255, 255, 255, 0.14)",
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.18,
+        shadowRadius: 6,
+      },
+      android: { elevation: 0 },
+    }),
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  textInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "white",
-    fontWeight: "400",
-  },
-  eyeButton: {
-    padding: 4,
-    marginLeft: 8,
-  },
-  forgotPassword: {
-    alignSelf: "flex-end",
-    marginBottom: 32,
-    marginTop: -8,
-  },
-  forgotPasswordText: {
-    color: "#ff6b6b",
+  inputIcon: { marginRight: 10 },
+  textInput: { flex: 1, fontSize: 16, color: "white", fontWeight: "400" },
+  eyeButton: { padding: 4, marginLeft: 6 },
+
+  linkText: {
+    color: ACCENT,
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "bold",
+    textDecorationLine: "underline",
+    textAlign: "center",
   },
+
   signInButton: {
-    borderRadius: 16,
+    borderRadius: 14,
     overflow: "hidden",
-    marginBottom: 24,
-    shadowColor: "#ff6b6b",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    marginBottom: 14,
+    alignSelf: "center",
+    width: "100%",
+    ...Platform.select({
+      ios: {
+        shadowColor: ACCENT,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.22,
+        shadowRadius: 12,
+      },
+      android: { elevation: 0 },
+    }),
   },
-  buttonDisabled: {
-    shadowOpacity: 0,
-    elevation: 0,
-  },
+  buttonDisabled: { shadowOpacity: 0, elevation: 0 },
   buttonGradient: {
-    paddingVertical: 18,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 56,
+    minHeight: 52,
   },
-  loadingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  buttonText: { color: "white", fontSize: 16, fontWeight: "bold" },
+
   dividerContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 24,
+    marginVertical: 14,
   },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-  },
-  dividerText: {
-    color: "#8e8e93",
-    fontSize: 14,
-    marginHorizontal: 16,
-    fontWeight: "500",
-  },
+  divider: { flex: 1, height: 1, backgroundColor: "rgba(255, 255, 255, 0.2)" },
+  dividerText: { color: "#8e8e93", fontSize: 14, marginHorizontal: 12, fontWeight: "500" },
+
   socialContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 32,
+    marginBottom: 14,
   },
   socialButton: {
     flex: 1,
@@ -396,63 +385,16 @@ const styles = {
     justifyContent: "center",
     backgroundColor: "rgba(255, 255, 255, 0.9)",
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     marginHorizontal: 6,
   },
-  socialButtonText: {
-    color: "#1a1a1a",
-    fontSize: 14,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
+  socialButtonText: { color: "#1a1a1a", fontSize: 14, fontWeight: "600", marginLeft: 8 },
 
-  /* Footer block */
-  footerSection: {
-    marginTop: 16,
-    paddingTop: 8,
-    // This bottom padding keeps links off the absolute bottom.
-    paddingBottom: 12,
-  },
-  footer: {
+  footerBlock: { alignItems: "center", marginTop: 10, marginBottom: 6 },
+  footerRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    // Lift it a bit higher from the bottom
-    marginBottom: 6,
   },
-  footerText: {
-    color: "#a8a8a8",
-    fontSize: 14,
-    marginRight: 8,
-  },
-
-  /* Highlighted "Join the gym" chip */
-  joinChip: {
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  joinChipBg: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-  },
-  joinChipText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-
-  /* Coach link under the gym link */
-  coachFooter: {
-    alignItems: "center",
-    marginTop: 10,
-  },
-  coachLinkText: {
-    color: "#ff6b6b",
-    fontSize: 14,
-    fontWeight: "bold",
-    textDecorationLine: "underline",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
+  footerText: { color: "#a8a8a8", fontSize: 14 },
 };
