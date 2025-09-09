@@ -179,7 +179,7 @@ export default function SignInScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          <TouchableOpacity onPress={() => navigation.navigate("CoachSignUp")} activeOpacity={0.7} style={{ marginTop: 6 }}>
+          <TouchableOpacity onPress={() => navigation.navigate("CoachEmail")} activeOpacity={0.7} style={{ marginTop: 6 }}>
             <Text style={styles.linkText}>Join as a coach</Text>
           </TouchableOpacity>
         </View>
