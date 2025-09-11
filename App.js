@@ -8,6 +8,7 @@ import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import Onboarding from "./src/screens/OnboardingWizard";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
+import GymDiscoveryScreen from "./src/screens/GymDiscoveryScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -26,6 +27,7 @@ export default function App() {
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Onboarding" component={Onboarding} options={{ headerShown: false }} />
         <Stack.Screen name="CoachEmail" component={CoachEmailVerification} options={{ headerShown: false }} />
+        <Stack.Screen name="GymDiscovery" component={GymDiscoveryScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
