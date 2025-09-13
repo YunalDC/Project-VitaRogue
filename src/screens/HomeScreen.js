@@ -467,6 +467,11 @@ export default function HomeScreen({ route, navigation }) {
         </TouchableOpacity>
 
         <NavButton icon="stats-chart-outline" label="Progress" onPress={() => {}} />
+          <NavButton
+          icon="people-outline"
+          label="Coaches"
+          onPress={() => navigation.navigate("CoachMarket")}
+        />
         <NavButton icon="ellipsis-horizontal" label="More" onPress={() => {}} />
       </View>
 

@@ -1,7 +1,6 @@
 import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-
 import SignInScreen from "./src/screens/SignInScreen";
 import SignUpScreen from "./src/screens/SignUpScreen";
 import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
@@ -9,6 +8,7 @@ import HomeScreen from "./src/screens/HomeScreen";
 import Onboarding from "./src/screens/OnboardingWizard";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
 import GymDiscoveryScreen from "./src/screens/GymDiscoveryScreen";
+import CoachMarketplaceScreen from "./src/screens/CoachMarketPlaceScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -28,6 +28,7 @@ export default function App() {
         <Stack.Screen name="Onboarding" component={Onboarding} options={{ headerShown: false }} />
         <Stack.Screen name="CoachEmail" component={CoachEmailVerification} options={{ headerShown: false }} />
         <Stack.Screen name="Gymlook" component={GymDiscoveryScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CoachMarket" component={CoachMarketPlaceScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
