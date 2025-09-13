@@ -28,7 +28,7 @@ export default function App() {
         <Stack.Screen name="Onboarding" component={Onboarding} options={{ headerShown: false }} />
         <Stack.Screen name="CoachEmail" component={CoachEmailVerification} options={{ headerShown: false }} />
         <Stack.Screen name="Gymlook" component={GymDiscoveryScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="CoachMarket" component={CoachMarketPlaceScreen} />
+        <Stack.Screen name="CoachMarket" component={CoachMarketplaceScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
