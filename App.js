@@ -25,7 +25,7 @@ export default function App() {
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Onboarding" component={Onboarding} options={{ headerShown: false }} />
-        <Stack.Screen name="CoachEmail" component={CoachEmailVerification} options={{ headerShown: false }} />
+        <Stack.Screen name="CoachEmails" component={CoachEmailVerification} options={{ headerShown: false }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
