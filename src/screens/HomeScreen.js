@@ -12,6 +12,7 @@ import {
   Alert,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
 import { getAuth, onAuthStateChanged } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
@@ -107,6 +108,7 @@ function calcTargets(profile) {
 
 /** ------------------ Component ------------------ */
 export default function HomeScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const [authUser, setAuthUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -217,8 +219,8 @@ export default function HomeScreen({ route, navigation }) {
       <StatusBar style="light" backgroundColor="#0B1220" />
       {Platform.OS === "android" && <RNStatusBar barStyle="light-content" />}
 
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Header with safe area */}
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <View style={styles.headerLeft}>
           <View style={styles.avatar}>
             <Text style={styles.avatarInitial}>{userName.charAt(0).toUpperCase()}</Text>
@@ -254,7 +256,7 @@ export default function HomeScreen({ route, navigation }) {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 110 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero carousel */}
@@ -451,8 +453,8 @@ export default function HomeScreen({ route, navigation }) {
         </View>
       </ScrollView>
 
-      {/* Bottom nav with center FAB */}
-      <View style={styles.bottomBar}>
+      {/* Bottom nav with center FAB - adjusted for safe area */}
+      <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
         <NavButton icon="home" label="Dashboard" active onPress={() => {}} />
         <NavButton icon="book-outline" label="Diary" onPress={() => {}} />
 
@@ -461,13 +463,13 @@ export default function HomeScreen({ route, navigation }) {
             Alert.alert("Coming soon", "Hook this to your add-log flow (food, weight, workout).");
           }}
           activeOpacity={0.9}
-          style={styles.fab}
+          style={[styles.fab, { bottom: 20 + insets.bottom }]}
         >
           <Ionicons name="add" size={26} color="#0b1220" />
         </TouchableOpacity>
 
         <NavButton icon="stats-chart-outline" label="Progress" onPress={() => {}} />
-          <NavButton
+        <NavButton
           icon="people-outline"
           label="Coaches"
           onPress={() => navigation.navigate("CoachMarket")}
@@ -489,7 +491,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
 
   header: {
-    paddingTop: Platform.OS === "ios" ? 14 : 10,
     paddingHorizontal: 16,
     paddingBottom: 8,
     flexDirection: "row",
@@ -708,7 +709,6 @@ const styles = StyleSheet.create({
 
   fab: {
     position: "absolute",
-    bottom: 20,
     alignSelf: "center",
     width: 56,
     height: 56,
