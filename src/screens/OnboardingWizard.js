@@ -1,4 +1,4 @@
-// OnboardingWizard.jsx
+// /src/screens/OnboardingWizard.jsx
 // Enhanced one-question-per-page onboarding flow with stable, label-above inputs
 // Requires: expo-linear-gradient, @react-navigation/native, @react-navigation/stack, react-native-vector-icons/Ionicons
 
@@ -16,12 +16,12 @@ import {
   Animated,
   Dimensions,
   StatusBar,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Icon from "react-native-vector-icons/Ionicons";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
-import { db } from "../lib/firebaseApp";
+import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db, firebaseAuth } from "../lib/firebaseApp";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -299,9 +299,9 @@ export default function OnboardingWizard({ navigation }) {
     }).start();
   }, [step]);
 
-  const totalSteps = 10; // last index = 10 (0..10)
+  const totalSteps = 10; // 0..10 (11 screens including review)
 
-  // Make sure we scroll to top for each step so nothing gets cut off on small screens
+  // Scroll to top for each step
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   }, [step]);
@@ -359,8 +359,7 @@ export default function OnboardingWizard({ navigation }) {
             {[
               { label: "Male", icon: "male" },
               { label: "Female", icon: "female" },
-              // If your Ionicons version lacks transgender icon, use "male-female" instead:
-              { label: "Non-binary", icon: "male-female" },
+              { label: "Non-binary", icon: "male-female" }, // fallback icon
               { label: "Prefer not to say", icon: "help-circle-outline" },
             ].map(({ label, icon }) => (
               <EnhancedOptionChip
@@ -446,8 +445,7 @@ export default function OnboardingWizard({ navigation }) {
           <View style={styles.optionsGrid}>
             {[
               { label: "Lose weight", icon: "trending-down" },
-              // If "remove-outline" doesn't exist in your set, try "remove" or "remove-circle-outline"
-              { label: "Maintain weight", icon: "remove-outline" },
+              { label: "Maintain weight", icon: "remove-outline" }, // use an available icon
               { label: "Build muscle", icon: "barbell-outline" },
               { label: "General health", icon: "heart-outline" },
             ].map(({ label, icon }) => (
@@ -476,8 +474,7 @@ export default function OnboardingWizard({ navigation }) {
               { label: "Vegan", icon: "flower-outline" },
               { label: "Pescatarian", icon: "fish-outline" },
               { label: "Keto/Low-carb", icon: "nutrition-outline" },
-              // If "wine-outline" is unavailable, try "wine" or switch to "pizza-outline"
-              { label: "Mediterranean", icon: "wine-outline" },
+              { label: "Mediterranean", icon: "pizza-outline" }, // safer fallback
               { label: "Halal", icon: "moon-outline" },
               { label: "Other", icon: "ellipsis-horizontal" },
             ].map(({ label, icon }) => (
@@ -502,35 +499,17 @@ export default function OnboardingWizard({ navigation }) {
           <View>
             <View style={styles.optionsColumn}>
               {[
-                {
-                  label: "Sedentary",
-                  icon: "bed-outline",
-                  desc: "Desk job, minimal exercise",
-                },
-                {
-                  label: "Light activity",
-                  icon: "walk-outline",
-                  desc: "Some walking, light exercise",
-                },
-                {
-                  label: "Moderate",
-                  icon: "bicycle-outline",
-                  desc: "Regular workouts 3-4x/week",
-                },
-                {
-                  label: "Very active",
-                  icon: "barbell-outline",
-                  desc: "Daily exercise, athletic",
-                },
+                { label: "Sedentary", icon: "bed-outline", desc: "Desk job, minimal exercise" },
+                { label: "Light activity", icon: "walk-outline", desc: "Some walking, light exercise" },
+                { label: "Moderate", icon: "bicycle-outline", desc: "Regular workouts 3-4x/week" },
+                { label: "Very active", icon: "barbell-outline", desc: "Daily exercise, athletic" },
               ].map(({ label, icon, desc }) => (
                 <View key={label} style={styles.activityOption}>
                   <EnhancedOptionChip
                     label={label}
                     icon={icon}
                     selected={answers.fitnessLevel === label}
-                    onPress={() =>
-                      setAnswers((a) => ({ ...a, fitnessLevel: label }))
-                    }
+                    onPress={() => setAnswers((a) => ({ ...a, fitnessLevel: label }))}
                   />
                   <Text style={styles.activityDesc}>{desc}</Text>
                 </View>
@@ -596,13 +575,8 @@ export default function OnboardingWizard({ navigation }) {
                       activeOpacity={0.9}
                     >
                       <Text style={styles.stressEmoji}>{emoji}</Text>
-                      <Text style={[styles.stressNum, selected && styles.stressNumSelected]}>
-                        {num}
-                      </Text>
-                      <Text
-                        style={[styles.stressLabel, selected && styles.stressLabelSelected]}
-                        numberOfLines={1}
-                      >
+                      <Text style={[styles.stressNum, selected && styles.stressNumSelected]}>{num}</Text>
+                      <Text style={[styles.stressLabel, selected && styles.stressLabelSelected]} numberOfLines={1}>
                         {label}
                       </Text>
                     </TouchableOpacity>
@@ -656,12 +630,7 @@ export default function OnboardingWizard({ navigation }) {
               { label: "Gender", value: answers.gender, step: 2, icon: "body" },
               { label: "Height", value: `${answers.heightCm} cm`, step: 3, icon: "resize" },
               { label: "Weight", value: `${answers.weightKg} kg`, step: 3, icon: "fitness" },
-              {
-                label: "Health notes",
-                value: answers.conditions || "None specified",
-                step: 4,
-                icon: "medical",
-              },
+              { label: "Health notes", value: answers.conditions || "None specified", step: 4, icon: "medical" },
               { label: "Goal", value: answers.weightGoal, step: 5, icon: "barbell" },
               { label: "Diet", value: answers.diet, step: 6, icon: "restaurant" },
               { label: "Activity", value: answers.fitnessLevel, step: 7, icon: "bicycle" },
@@ -669,13 +638,7 @@ export default function OnboardingWizard({ navigation }) {
               { label: "Stress", value: `Level ${answers.lifestyle.stress}/5`, step: 8, icon: "pulse" },
               { label: "Coaching", value: answers.wantsCoach, step: 9, icon: "people" },
             ].map(({ label, value, step: editStep, icon }, idx) => (
-              <EnhancedSummaryRow
-                key={idx}
-                label={label}
-                value={value}
-                icon={icon}
-                onPress={() => setStep(editStep)}
-              />
+              <EnhancedSummaryRow key={idx} label={label} value={value} icon={icon} onPress={() => setStep(editStep)} />
             ))}
           </View>
         ),
@@ -687,7 +650,7 @@ export default function OnboardingWizard({ navigation }) {
 
   const handleNext = () => {
     const err = STEPS[step].validate?.();
-    if (err) return alert(err);
+    if (err) return Alert.alert("Incomplete", err);
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
 
@@ -695,8 +658,9 @@ export default function OnboardingWizard({ navigation }) {
 
   const onFinish = async () => {
     try {
-      const uid = getAuth().currentUser?.uid;
+      const uid = firebaseAuth.currentUser?.uid;
       if (uid) {
+        // Merge profile answers and mark onboarding complete
         await setDoc(
           doc(db, "users", uid),
           {
@@ -707,10 +671,11 @@ export default function OnboardingWizard({ navigation }) {
           { merge: true }
         );
       }
+      // Navigate into app; if you use an auth gate, it will switch automatically anyway
       navigation.replace("Home");
     } catch (error) {
-      alert("Error saving profile. Please try again.");
       console.error(error);
+      Alert.alert("Error", "Error saving profile. Please try again.");
     }
   };
 
@@ -760,9 +725,7 @@ export default function OnboardingWizard({ navigation }) {
               </View>
 
               {/* Card */}
-              <StepCard step={step}>
-                {STEPS[step].render()}
-              </StepCard>
+              <StepCard step={step}>{STEPS[step].render()}</StepCard>
 
               {/* Nav Buttons */}
               <View style={styles.navigationContainer}>
@@ -795,7 +758,7 @@ export default function OnboardingWizard({ navigation }) {
                 )}
               </View>
 
-              {/* Bottom spacer to prevent cut-off on very small screens */}
+              {/* Bottom spacer */}
               <View style={{ height: 16 }} />
             </ScrollView>
           </KeyboardAvoidingView>
@@ -818,9 +781,9 @@ const styles = StyleSheet.create({
     minHeight: screenHeight * 0.9,
   },
   progressContainer: {
-  marginTop: Platform.select({ ios: 24, android: 20 }),
-  marginBottom: 22,
-},
+    marginTop: Platform.select({ ios: 24, android: 20 }),
+    marginBottom: 22,
+  },
   progressBackground: {
     height: 8,
     backgroundColor: COLORS.stepIdle,

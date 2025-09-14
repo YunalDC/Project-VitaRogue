@@ -1,4 +1,4 @@
-// /lib/auth.js
+// /src/lib/auth.js
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -9,7 +9,7 @@ import {
 } from "firebase/auth";
 import { firebaseAuth } from "./firebaseApp";
 
-// Optional: map Firebase errors to nicer messages
+// Pretty error messages
 const niceError = (e) => {
   const code = e?.code || "";
   if (code.includes("auth/invalid-email")) return "Invalid email address.";
@@ -26,7 +26,6 @@ const niceError = (e) => {
 export async function signUp(email, password) {
   try {
     const cred = await createUserWithEmailAndPassword(firebaseAuth, email, password);
-    // (Optional) verify email
     try { await sendEmailVerification(cred.user); } catch {}
     return cred.user;
   } catch (e) {
@@ -59,11 +58,10 @@ export async function resetPassword(email) {
 }
 
 export async function logOut() {
-  return signOut(firebaseAuth);
+  return signOut(firebaseAuth); // clears persisted session
 }
 
-// Hook up in your app root if you want auto-redirects
+// Optional: subscribe from anywhere
 export function subscribeAuth(cb) {
-  // cb(user | null)
-  return onAuthStateChanged(firebaseAuth, cb);
+  return onAuthStateChanged(firebaseAuth, cb); // cb(user|null)
 }

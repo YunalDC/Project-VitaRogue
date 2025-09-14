@@ -1,37 +1,60 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# ============================================
+# Dependencies
+# ============================================
 node_modules/
+package-lock.json
+yarn.lock
 
-# Expo
+# ============================================
+# Expo / Metro
+# ============================================
 .expo/
+.expo-shared/
 dist/
 web-build/
 expo-env.d.ts
+.metro-health-check*
 
-# Native
-.kotlin/
-*.orig.*
-*.jks
+# ============================================
+# Android / iOS build outputs
+# ============================================
+android/app/build/
+android/.gradle/
+android/.idea/
+android/local.properties
+ios/build/
+ios/Pods/
+ios/Podfile.lock
+
+# ============================================
+# Firebase / Google
+# ============================================
+# Do NOT commit service account keys
 *.p8
 *.p12
 *.key
-*.mobileprovision
-
-# Metro
-.metro-health-check*
-
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
 *.pem
+*.mobileprovision
+google-services.json
+GoogleService-Info.plist
 
-# local env files
+# ============================================
+# Environment files
+# ============================================
+.env
 .env*.local
 
-# typescript
+# ============================================
+# Logs & Debug
+# ============================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.orig.*
 *.tsbuildinfo
+
+# ============================================
+# macOS / Windows
+# ============================================
+.DS_Store
+Thumbs.db
