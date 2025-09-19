@@ -15,7 +15,7 @@ import {
   Linking,
   ActivityIndicator,
 } from "react-native";
-import MapView, { Marker, UrlTile as RNUrlTile } from "react-native-maps";
+import MapView, { Marker, UrlTile as RNUrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import Constants from "expo-constants";
@@ -237,6 +237,22 @@ async function fetchNearbyGymsGoogle({
       place_id: d.place_id,
     };
   });
+}
+
+/* ===========================
+   LOADING COMPONENT
+=========================== */
+function LoadingOverlay({ visible, message = "Loading..." }) {
+  if (!visible) return null;
+  
+  return (
+    <View style={styles.loading}>
+      <View style={styles.loadingContent}>
+        <ActivityIndicator size="large" color={Theme.accent} />
+        <Text style={styles.loadingText}>{message}</Text>
+      </View>
+    </View>
+  );
 }
 
 /* ===========================
@@ -487,7 +503,8 @@ function GymBottomSheet({ gyms, onGymTap, onFavorite, onDirections, selectedGym 
 export default function GymDiscoveryScreen() {
   const [isListView, setIsListView] = useState(false);
   const [isMapReady, setIsMapReady] = useState(false);
-  const [isPlacesLoading, setIsPlacesLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState("Loading...");
 
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState({});
@@ -527,6 +544,7 @@ export default function GymDiscoveryScreen() {
 
     (async () => {
       try {
+        setLoadingMessage("Getting location...");
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== "granted") {
           setErrorMsg("Location permission denied. Enable it to find nearby gyms.");
@@ -534,7 +552,11 @@ export default function GymDiscoveryScreen() {
           setUserLoc(fallback);
           setInitialRegion({ ...fallback, latitudeDelta: 0.05, longitudeDelta: 0.05 });
           setCurrentRegion({ ...fallback, latitudeDelta: 0.05, longitudeDelta: 0.05 });
-          if (USE_PLACES) refetchGyms(fallback);
+          if (USE_PLACES) {
+            await refetchGyms(fallback);
+          } else {
+            setIsLoading(false);
+          }
           return;
         }
 
@@ -549,7 +571,11 @@ export default function GymDiscoveryScreen() {
         setInitialRegion({ ...pos, latitudeDelta: 0.05, longitudeDelta: 0.05 });
         setCurrentRegion({ ...pos, latitudeDelta: 0.05, longitudeDelta: 0.05 });
 
-        if (USE_PLACES) refetchGyms(pos);
+        if (USE_PLACES) {
+          await refetchGyms(pos);
+        } else {
+          setIsLoading(false);
+        }
 
         watchSub = await Location.watchPositionAsync(
           {
@@ -574,7 +600,11 @@ export default function GymDiscoveryScreen() {
         setUserLoc(defaultPos);
         setInitialRegion({ ...defaultPos, latitudeDelta: 0.05, longitudeDelta: 0.05 });
         setCurrentRegion({ ...defaultPos, latitudeDelta: 0.05, longitudeDelta: 0.05 });
-        if (USE_PLACES) refetchGyms(defaultPos);
+        if (USE_PLACES) {
+          await refetchGyms(defaultPos);
+        } else {
+          setIsLoading(false);
+        }
       }
     })();
 
@@ -674,11 +704,11 @@ export default function GymDiscoveryScreen() {
       // No Places key configured — render map immediately with zero gyms
       setGyms([]);
       setSelectedGym(null);
-      setIsPlacesLoading(false);
+      setIsLoading(false);
       return;
     }
     try {
-      setIsPlacesLoading(true);
+      setLoadingMessage("Loading nearby gyms...");
       const radiusKm = Number(filters?.distanceRadius ?? 5);
       const minRating = Number(filters?.minRating ?? 0);
       const openNow = !!filters?.openNow;
@@ -704,7 +734,7 @@ export default function GymDiscoveryScreen() {
       setErrorMsg(e?.message || "Failed to load nearby gyms.");
       console.warn("refetchGyms error:", e);
     } finally {
-      setIsPlacesLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -761,10 +791,9 @@ export default function GymDiscoveryScreen() {
             <MapView
               ref={mapRef}
               style={styles.mapView}
-              // NOTE: No provider prop — renders in Expo Go
+              provider={PROVIDER_DEFAULT}
               region={currentRegion}
               onRegionChangeComplete={setCurrentRegion}
-              customMapStyle={darkMapStyle}
               showsUserLocation
               showsMyLocationButton
               followsUserLocation={false}
@@ -781,17 +810,29 @@ export default function GymDiscoveryScreen() {
               showsIndoorLevelPicker
               showsPointsOfInterest={false}
               showsTraffic={false}
-              onMapReady={() => setIsMapReady(true)}
-              onMapLoaded={() => setIsMapReady(true)}
-              onMapError={(e) =>
-                setErrorMsg(`Map error: ${e?.nativeEvent?.message || "unknown"}`)
-              }
+              onMapReady={() => {
+                setIsMapReady(true);
+                if (!USE_PLACES && isLoading) {
+                  setIsLoading(false);
+                }
+              }}
+              onMapLoaded={() => {
+                setIsMapReady(true);
+                if (!USE_PLACES && isLoading) {
+                  setIsLoading(false);
+                }
+              }}
+              onMapError={(e) => {
+                setErrorMsg(`Map error: ${e?.nativeEvent?.message || "unknown"}`);
+                setIsLoading(false);
+              }}
             >
-              {/* OSM tiles so Expo Go shows a map without Google keys */}
+              {/* OpenStreetMap tiles for Expo Go compatibility */}
               <UrlTile
-                shouldReplaceMapContent
                 urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                 maximumZ={19}
+                flipY={false}
+                shouldReplaceMapContent={true}
                 zIndex={-1}
               />
 
@@ -851,15 +892,8 @@ export default function GymDiscoveryScreen() {
         onApply={(f) => setFilters(f)}
       />
 
-      {/* Only show spinner when Places is fetching */}
-      {isPlacesLoading && (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={Theme.accent} />
-          <Text style={{ color: Theme.muted, marginTop: 8, fontSize: 14 }}>
-            Loading gyms...
-          </Text>
-        </View>
-      )}
+      {/* Unified loading overlay */}
+      <LoadingOverlay visible={isLoading} message={loadingMessage} />
     </View>
   );
 }
@@ -875,22 +909,6 @@ function NavItem({ icon, label, active }) {
     </View>
   );
 }
-
-/* ===========================
-   Dark map style
-=========================== */
-const darkMapStyle = [
-  { elementType: "geometry", stylers: [{ color: "#1f2937" }] },
-  { elementType: "labels.text.fill", stylers: [{ color: "#9aa0a6" }] },
-  { elementType: "labels.text.stroke", stylers: [{ color: "#1f2937" }] },
-  { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#1f2937" }] },
-  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#9aa0a6" }] },
-  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#0b1220" }] },
-  { featureType: "road", elementType: "geometry", stylers: [{ color: "#0b1220" }] },
-  { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
-  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#0b1220" }] },
-  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0b1220" }] },
-];
 
 /* ===========================
    STYLES
@@ -1257,9 +1275,23 @@ const styles = StyleSheet.create({
 
   loading: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(11,18,32,0.8)",
+    backgroundColor: "rgba(11,18,32,0.9)",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1000,
+  },
+  loadingContent: {
+    backgroundColor: Theme.card,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: Theme.border,
+  },
+  loadingText: {
+    color: Theme.text,
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
