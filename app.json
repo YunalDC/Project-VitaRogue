@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "VitaRogue",
+    "slug": "VitaRogue",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "extra": {
+      "GOOGLE_PLACES_API_KEY": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA",
+      "eas": {
+        "projectId": "96e37541-8b98-4aa7-91a2-acc5b006c78e"
+      }
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We use your location to find nearby gyms."
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/main-logo.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA"
+        }
+      },
+      "package": "com.everboltit.VitaRogue"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
