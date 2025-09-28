@@ -217,7 +217,7 @@ const CatIcon = ({ cat, size = 14, color = TEXT }) => {
 };
 
 /* ===================== Component ===================== */
-export default function CoachMarketplaceScreen() {
+export default function CoachMarketplaceScreen({ navigation }) {
   const insets = useSafeAreaInsets();
 
   const [coaches, setCoaches] = useState(dummyCoaches);
@@ -244,7 +244,8 @@ export default function CoachMarketplaceScreen() {
           ...coach.reviewsList,
           { id: `r${coach.reviewsList.length + 1}`, reviewer: "You", comment: newComment, stars },
         ];
-        const avgRating = updatedReviews.reduce((sum, r) => sum + r.stars, 0) / updatedReviews.length;
+        const avgRating =
+          updatedReviews.reduce((sum, r) => sum + r.stars, 0) / updatedReviews.length;
         return { ...coach, reviewsList: updatedReviews, rating: avgRating };
       }
       return coach;
@@ -349,7 +350,9 @@ export default function CoachMarketplaceScreen() {
                 placeholder="Leave a review…"
                 placeholderTextColor="#94a3b8"
                 value={reviewInputs[item.id] || ""}
-                onChangeText={(text) => setReviewInputs({ ...reviewInputs, [item.id]: text })}
+                onChangeText={(text) =>
+                  setReviewInputs({ ...reviewInputs, [item.id]: text })
+                }
               />
               <TouchableOpacity
                 style={styles.submitButton}
@@ -381,9 +384,21 @@ export default function CoachMarketplaceScreen() {
         ]}
       >
         <View style={styles.headerTopRow}>
+          {/* Back button */}
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backBtn}
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={22} color={TEXT} />
+          </TouchableOpacity>
+
           <Text style={styles.title} numberOfLines={1}>
             Coach Marketplace
           </Text>
+
+          {/* right spacer to keep title centered */}
+          <View style={{ width: 32, height: 32 }} />
         </View>
 
         {/* Sort row (own line, horizontally scrollable) */}
@@ -479,6 +494,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 6,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(16,25,46,0.35)",
+    borderWidth: 1,
+    borderColor: BORDER,
   },
   title: {
     color: TEXT,

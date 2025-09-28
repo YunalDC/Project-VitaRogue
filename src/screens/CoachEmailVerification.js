@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, SafeAreaView, KeyboardAvoidingView,
   Platform, ScrollView, Dimensions, Alert, Keyboard, TouchableWithoutFeedback
@@ -13,9 +13,7 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firest
 const { width } = Dimensions.get("window");
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
-const LOGO_SIZE = Math.min(160, Math.max(100, Math.round(width * 0.35)));
-
-const RESEND_COOLDOWN = 60; // seconds
+const RESEND_COOLDOWN = 60;
 
 export default function CoachEmailVerification({ navigation }) {
   const auth = getAuth();
@@ -26,7 +24,6 @@ export default function CoachEmailVerification({ navigation }) {
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const [emailFocused, setEmailFocused] = useState(false);
 
-  // Ensure user doc exists, prefill email if available
   useEffect(() => {
     (async () => {
       try {
@@ -36,7 +33,6 @@ export default function CoachEmailVerification({ navigation }) {
         if (!snap.exists()) {
           await setDoc(ref, { onboardingComplete: false, createdAt: serverTimestamp() });
         }
-        // prefer auth email; if you store an email in Firestore and want to show it, read here
       } catch (e) {
         console.warn(e);
       }
@@ -52,19 +48,9 @@ export default function CoachEmailVerification({ navigation }) {
   const onSend = useCallback(async () => {
     if (!user) return Alert.alert("Not signed in");
     if (!email || !email.includes("@")) return Alert.alert("Invalid email", "Enter a valid email address.");
-
     try {
       setLoading(true);
-
-      // If user changed email in the UI (optional): update their email before sending
-      if (email !== user.email) {
-        // Requires recent login to update primary auth email; usually do this at Sign Up time.
-        // await updateEmail(user, email); // uncomment if you support changing the Auth email here
-      }
-
-      // Simplest path: let Firebase handle the link in the browser and finish there.
-      await sendEmailVerification(user /*, actionCodeSettings optional */);
-
+      await sendEmailVerification(user);
       setCooldownLeft(RESEND_COOLDOWN);
       Alert.alert("Verification sent", `We sent a link to ${user.email}. Check your inbox (and spam).`);
     } catch (e) {
@@ -79,17 +65,18 @@ export default function CoachEmailVerification({ navigation }) {
     if (!user) return;
     try {
       setLoading(true);
-      await reload(user); // refresh user profile from Firebase
+      await reload(user);
       const fresh = auth.currentUser;
       if (fresh?.emailVerified) {
         const ref = doc(db, "users", fresh.uid);
         await updateDoc(ref, {
           coachEmailVerified: true,
+          role: "coach",
           email: fresh.email,
           emailVerifiedAt: serverTimestamp(),
         });
         Alert.alert("Success", "Your email is verified.", [
-          { text: "Continue", onPress: () => navigation.reset({ index: 0, routes: [{ name: "Home", params: { email: fresh.email } }] }) },
+          { text: "Continue", onPress: () => navigation.reset({ index: 0, routes: [{ name: "CoachDashboard" }] }) },
         ]);
       } else {
         Alert.alert("Not verified yet", "Please tap the link in the email we sent, then try again.");
@@ -111,7 +98,20 @@ export default function CoachEmailVerification({ navigation }) {
       bounces={false}
     >
       <View style={[styles.centerWrap, { justifyContent: "center" }]}>
-        {/* Header */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+          <TouchableOpacity
+            onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.8}
+            style={{ flexDirection: "row", alignItems: "center" }}
+          >
+            <Icon name="chevron-back" size={24} color="#ffffff" />
+            <Text style={{ color: "white", fontWeight: "800", fontSize: 16, marginLeft: 6 }}>
+              Back
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={{ alignItems: "center", marginBottom: 20 }}>
           <Text style={styles.title}>Coach Email Verification</Text>
           <Text style={styles.subtitle}>
@@ -120,7 +120,6 @@ export default function CoachEmailVerification({ navigation }) {
         </View>
 
         <View style={styles.formContainer}>
-          {/* Email */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Email Address</Text>
             <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
@@ -142,7 +141,6 @@ export default function CoachEmailVerification({ navigation }) {
             </View>
           </View>
 
-          {/* Send / Resend */}
           <TouchableOpacity
             onPress={onSend}
             style={[styles.signInButton, (loading || cooldownLeft > 0) && styles.buttonDisabled]}
@@ -161,14 +159,12 @@ export default function CoachEmailVerification({ navigation }) {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Divider */}
           <View style={styles.dividerContainer}>
             <View style={styles.divider} />
             <Text style={styles.dividerText}>then</Text>
             <View style={styles.divider} />
           </View>
 
-          {/* I verified */}
           <TouchableOpacity
             onPress={onIHaveVerified}
             style={[styles.signInButton, loading && styles.buttonDisabled]}
@@ -185,7 +181,6 @@ export default function CoachEmailVerification({ navigation }) {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Help */}
           <View style={{ alignItems: "center", marginTop: 10 }}>
             <Text style={{ color: "#a8a8a8", fontSize: 13, textAlign: "center" }}>
               Tip: check spam/promotions. Add our from address to contacts for better deliverability.
@@ -193,9 +188,8 @@ export default function CoachEmailVerification({ navigation }) {
           </View>
         </View>
 
-        {/* Footer */}
         <View style={styles.footerBlock}>
-          <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <TouchableOpacity onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })} activeOpacity={0.7}>
             <Text style={styles.linkText}>Back</Text>
           </TouchableOpacity>
         </View>
@@ -221,7 +215,6 @@ export default function CoachEmailVerification({ navigation }) {
   );
 }
 
-/** ===== Styles (same look & feel as your SignIn) ===== */
 const styles = {
   container: { flex: 1 },
   gradient: { flex: 1 },

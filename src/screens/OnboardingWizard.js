@@ -20,7 +20,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Icon from "react-native-vector-icons/Ionicons";
-import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, firebaseAuth } from "../lib/firebaseApp";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
@@ -301,7 +301,6 @@ export default function OnboardingWizard({ navigation }) {
 
   const totalSteps = 10; // 0..10 (11 screens including review)
 
-  // Scroll to top for each step
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   }, [step]);
@@ -359,7 +358,7 @@ export default function OnboardingWizard({ navigation }) {
             {[
               { label: "Male", icon: "male" },
               { label: "Female", icon: "female" },
-              { label: "Non-binary", icon: "male-female" }, // fallback icon
+              { label: "Non-binary", icon: "male-female" },
               { label: "Prefer not to say", icon: "help-circle-outline" },
             ].map(({ label, icon }) => (
               <EnhancedOptionChip
@@ -445,7 +444,7 @@ export default function OnboardingWizard({ navigation }) {
           <View style={styles.optionsGrid}>
             {[
               { label: "Lose weight", icon: "trending-down" },
-              { label: "Maintain weight", icon: "remove-outline" }, // use an available icon
+              { label: "Maintain weight", icon: "remove-outline" },
               { label: "Build muscle", icon: "barbell-outline" },
               { label: "General health", icon: "heart-outline" },
             ].map(({ label, icon }) => (
@@ -474,7 +473,7 @@ export default function OnboardingWizard({ navigation }) {
               { label: "Vegan", icon: "flower-outline" },
               { label: "Pescatarian", icon: "fish-outline" },
               { label: "Keto/Low-carb", icon: "nutrition-outline" },
-              { label: "Mediterranean", icon: "pizza-outline" }, // safer fallback
+              { label: "Mediterranean", icon: "pizza-outline" },
               { label: "Halal", icon: "moon-outline" },
               { label: "Other", icon: "ellipsis-horizontal" },
             ].map(({ label, icon }) => (
@@ -671,8 +670,9 @@ export default function OnboardingWizard({ navigation }) {
           { merge: true }
         );
       }
-      // Navigate into app; if you use an auth gate, it will switch automatically anyway
-      navigation.replace("Home");
+      // ✅ No cross-tree navigation here.
+      // App.js listens to the user doc and will switch to MainStack automatically.
+      Alert.alert("All set!", "Your profile is saved. Loading your dashboard…");
     } catch (error) {
       console.error(error);
       Alert.alert("Error", "Error saving profile. Please try again.");

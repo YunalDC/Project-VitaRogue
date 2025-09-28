@@ -1426,9 +1426,7 @@ export default function HomeScreen({ route, navigation }) {
             text="Settings" 
             onPress={() => {
               setMoreVisible(false);
-              const names = navigation?.getState?.()?.routeNames || [];
-              if (names.includes("Settings")) navigation.navigate("Settings");
-              else navigation.navigate("Onboarding");
+              navigation.navigate("Settings"); // <-- DIRECT TO SETTINGS
             }}
             ms={ms}
           />

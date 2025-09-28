@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, Image, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, Alert, ScrollView, Dimensions, SafeAreaView, Keyboard, TouchableWithoutFeedback
+  View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
+  Platform, Alert, ScrollView, SafeAreaView, Keyboard, TouchableWithoutFeedback
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
@@ -10,27 +10,25 @@ import { signIn } from "../lib/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebaseApp";
 
-const { width } = Dimensions.get("window");
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
-const LOGO_SIZE = Math.min(160, Math.max(100, Math.round(width * 0.35)));
 
-export default function SignInScreen({ navigation }) {
+export default function CoachSignInScreen({ navigation }) {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-
   const [kbVisible, setKbVisible] = useState(false);
+
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => setKbVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKbVisible(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  const onSignIn = async () => {
+  const onCoachSignIn = async () => {
     if (!email.trim() || !pw.trim()) {
       return Alert.alert("Missing fields", "Please fill all fields.");
     }
@@ -38,23 +36,32 @@ export default function SignInScreen({ navigation }) {
       setLoading(true);
       const user = await signIn(email.trim(), pw);
 
-      // ensure user doc and decide route
-      const ref = doc(db, "users", user.uid);
-      const snap = await getDoc(ref);
-      let onboardingComplete = false;
-      if (!snap.exists()) {
-        await setDoc(ref, { onboardingComplete: false, createdAt: serverTimestamp() });
+      // Ensure user doc exists and set role=coach
+      const uref = doc(db, "users", user.uid);
+      const usnap = await getDoc(uref);
+      if (!usnap.exists()) {
+        await setDoc(uref, {
+          role: "coach",
+          onboardingComplete: true,
+          createdAt: serverTimestamp(),
+          email: user.email,
+        });
       } else {
-        onboardingComplete = !!snap.data()?.onboardingComplete;
+        await setDoc(uref, { role: "coach", email: user.email, lastLoginAt: serverTimestamp() }, { merge: true });
       }
 
-      if (!onboardingComplete) {
-        navigation.reset({ index: 0, routes: [{ name: "Onboarding" }] });
+      // Optional: coaches collection
+      const cref = doc(db, "coaches", user.uid);
+      const csnap = await getDoc(cref);
+      if (!csnap.exists()) {
+        await setDoc(cref, { email: user.email, createdAt: serverTimestamp(), profileComplete: false });
       } else {
-        navigation.reset({ index: 0, routes: [{ name: "Home", params: { email: user.email } }] });
+        await setDoc(cref, { lastLoginAt: serverTimestamp() }, { merge: true });
       }
+
+      navigation.reset({ index: 0, routes: [{ name: "CoachDashboard" }] });
     } catch (e) {
-      Alert.alert("Sign In Failed", e.message);
+      Alert.alert("Coach Sign In Failed", e.message);
     } finally {
       setLoading(false);
     }
@@ -68,20 +75,10 @@ export default function SignInScreen({ navigation }) {
       showsVerticalScrollIndicator={false}
       bounces={false}
     >
-      <View
-        style={[
-          styles.centerWrap,
-          Platform.OS === "android" && (kbVisible ? styles.topAligned : styles.centerAligned),
-        ]}
-      >
+      <View style={[styles.centerWrap, Platform.OS === "android" && (kbVisible ? styles.topAligned : styles.centerAligned)]}>
         <View style={styles.header}>
-          <Image
-            source={require("../../assets/logo.png")}
-            style={[styles.logoImage, { width: LOGO_SIZE, height: LOGO_SIZE }]}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>Welcome Back</Text>
-          <Text style={styles.subtitle}>Ready to crush your goals?</Text>
+          <Text style={styles.title}>Coach Sign In</Text>
+          <Text style={styles.subtitle}>Access your coaching tools and clients</Text>
         </View>
 
         <View style={styles.formContainer}>
@@ -97,7 +94,7 @@ export default function SignInScreen({ navigation }) {
                 onBlur={() => setEmailFocused(false)}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                placeholder="your.email@example.com"
+                placeholder="coach@email.com"
                 placeholderTextColor="#8e8e93"
                 style={styles.textInput}
                 autoComplete="email"
@@ -122,7 +119,7 @@ export default function SignInScreen({ navigation }) {
                 style={styles.textInput}
                 autoComplete="password"
                 returnKeyType="go"
-                onSubmitEditing={onSignIn}
+                onSubmitEditing={onCoachSignIn}
               />
               <TouchableOpacity onPress={() => setShowPw(!showPw)} style={styles.eyeButton} activeOpacity={0.7}>
                 <Icon name={showPw ? "eye-outline" : "eye-off-outline"} size={20} color="#8e8e93" />
@@ -130,59 +127,28 @@ export default function SignInScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Forgot */}
-          <Text
-            style={[styles.linkText, { textAlign: "center", marginVertical: 8 }]}
-            onPress={() => navigation.navigate("ForgotPassword")}
-          >
-            Forgot Password?
-          </Text>
-
           {/* Sign In */}
-          <TouchableOpacity onPress={onSignIn} style={[styles.signInButton, loading && styles.buttonDisabled]} disabled={loading} activeOpacity={0.8}>
+          <TouchableOpacity onPress={onCoachSignIn} style={[styles.signInButton, loading && styles.buttonDisabled]} disabled={loading} activeOpacity={0.8}>
             <LinearGradient
               colors={loading ? ["#666", "#666"] : [ACCENT, ACCENT_DARK]}
               style={styles.buttonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
             >
-              <Text style={styles.buttonText}>{loading ? "Signing In..." : "Sign In"}</Text>
+              <Text style={styles.buttonText}>{loading ? "Signing In..." : "Sign In as Coach"}</Text>
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Divider */}
-          <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.divider} />
-          </View>
-
-          {/* Social (placeholders) */}
-          <View style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-              <Icon name="logo-google" size={20} color="#db4437" />
-              <Text style={styles.socialButtonText}>Google</Text>
+          {/* Links */}
+          <View style={{ alignItems: "center", marginTop: 10 }}>
+            <TouchableOpacity onPress={() => navigation.navigate("CoachSignUp")} activeOpacity={0.8} style={{ marginBottom: 6 }}>
+              <Text style={styles.linkText}>New coach? Create an account</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-              <Icon name="logo-apple" size={20} color="#000" />
-              <Text style={styles.socialButtonText}>Apple</Text>
+            <Text style={{ color: "#a8a8a8", fontSize: 14 }}>Are you a customer?</Text>
+            <TouchableOpacity onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })} activeOpacity={0.8}>
+              <Text style={styles.linkText}>Go to User Sign In</Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Footer */}
-        <View style={styles.footerBlock}>
-          <View style={styles.footerRow}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate("SignUp")} activeOpacity={0.7}>
-              <Text style={styles.linkText}>Create one</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Goes to the dedicated coach sign-in */}
-          <TouchableOpacity onPress={() => navigation.navigate("CoachSignIn")} activeOpacity={0.7} style={{ marginTop: 6 }}>
-            <Text style={styles.linkText}>Join as a coach</Text>
-          </TouchableOpacity>
         </View>
       </View>
     </ScrollView>
@@ -215,7 +181,6 @@ const styles = {
   centerAligned: { justifyContent: "center" },
   topAligned: { justifyContent: "flex-start" },
   header: { alignItems: "center", marginBottom: 20 },
-  logoImage: { marginBottom: 10 },
   title: { fontSize: 30, fontWeight: "bold", color: "white", marginBottom: 4, textAlign: "center" },
   subtitle: { fontSize: 15, color: "#a8a8a8", textAlign: "center", fontWeight: "400", marginBottom: 12 },
   formContainer: { width: "100%", alignSelf: "center" },
@@ -236,7 +201,7 @@ const styles = {
   inputIcon: { marginRight: 10 },
   textInput: { flex: 1, fontSize: 16, color: "white", fontWeight: "400" },
   eyeButton: { padding: 4, marginLeft: 6 },
-  linkText: { color: ACCENT, fontSize: 14, fontWeight: "bold", textDecorationLine: "underline", textAlign: "center" },
+  linkText: { color: ACCENT, fontSize: 14, fontWeight: "bold", textDecorationLine: "underline", marginTop: 6, textAlign: "center" },
   signInButton: {
     borderRadius: 14, overflow: "hidden", marginBottom: 14, alignSelf: "center", width: "100%",
     ...Platform.select({
@@ -247,16 +212,4 @@ const styles = {
   buttonDisabled: { shadowOpacity: 0, elevation: 0 },
   buttonGradient: { paddingVertical: 14, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minHeight: 52 },
   buttonText: { color: "white", fontSize: 16, fontWeight: "bold" },
-  dividerContainer: { flexDirection: "row", alignItems: "center", marginVertical: 14 },
-  divider: { flex: 1, height: 1, backgroundColor: "rgba(255, 255, 255, 0.2)" },
-  dividerText: { color: "#8e8e93", fontSize: 14, marginHorizontal: 12, fontWeight: "500" },
-  socialContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },
-  socialButton: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.9)", borderRadius: 12, paddingVertical: 12, marginHorizontal: 6,
-  },
-  socialButtonText: { color: "#1a1a1a", fontSize: 14, fontWeight: "600", marginLeft: 8 },
-  footerBlock: { alignItems: "center", marginTop: 10, marginBottom: 6 },
-  footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  footerText: { color: "#a8a8a8", fontSize: 14 },
 };

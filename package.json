@@ -11,12 +11,16 @@
   "dependencies": {
     "@dataconnect/generated": "file:src/dataconnect-generated",
     "@react-native-async-storage/async-storage": "2.1.2",
+    "@react-native-picker/picker": "2.11.1",
     "@react-navigation/native": "^7.1.17",
     "@react-navigation/native-stack": "^7.3.26",
     "expo": "~53.0.22",
+    "expo-camera": "~16.1.11",
     "expo-crypto": "~14.1.5",
+    "expo-image-picker": "~16.1.4",
     "expo-linear-gradient": "~14.1.5",
     "expo-location": "~18.1.6",
+    "expo-media-library": "~17.1.7",
     "expo-random": "^14.0.1",
     "expo-status-bar": "~2.2.3",
     "firebase": "^12.2.1",
@@ -26,11 +30,7 @@
     "react-native": "0.79.6",
     "react-native-maps": "1.20.1",
     "react-native-safe-area-context": "5.4.0",
-    "react-native-screens": "~4.11.1",
-    "expo-camera": "~16.1.11",
-    "expo-image-picker": "~16.1.4",
-    "expo-media-library": "~17.1.7",
-    "@react-native-picker/picker": "2.11.1"
+    "react-native-screens": "~4.11.1"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"
