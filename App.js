@@ -12,11 +12,17 @@ import SignInScreen from "./src/screens/SignInScreen";
 import SignUpScreen from "./src/screens/SignUpScreen";
 import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
 
-// 👇 Coach flow screens
+// Coach flow screens
 import CoachSignInScreen from "./src/screens/CoachSignInScreen";
 import CoachSignUpScreen from "./src/screens/CoachSignUpScreen";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
 import CoachDashboardScreen from "./src/screens/CoachDashboardScreen";
+import CoachClientProfile from "./src/screens/CoachClientProfile";
+import CoachClientMessaging from "./src/screens/CoachClientMessaging";
+import CoachClientsScreen from './src/screens/CoachClientsScreen';
+import WorkoutNutritionPlansScreen from './src/screens/WorkoutNutritionPlansScreen';
+import WorkoutPlanBuilderScreen from './src/screens/WorkoutPlanBuilderScreen';
+import NutritionPlanBuilderScreen from './src/screens/NutritionPlanBuilderScreen';
 
 import Onboarding from "./src/screens/OnboardingWizard";
 import HomeScreen from "./src/screens/HomeScreen";
@@ -93,13 +99,19 @@ function CoachStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}>
       <Stack.Screen name="CoachDashboard" component={CoachDashboardScreen} />
+      <Stack.Screen name="CoachClients" component={CoachClientsScreen} />
+      <Stack.Screen name="CoachClientProfile" component={CoachClientProfile} />
+      <Stack.Screen name="ClientMessaging" component={CoachClientMessaging} />
+      <Stack.Screen name="WorkoutNutritionPlans" component={WorkoutNutritionPlansScreen} />
+      <Stack.Screen name="WorkoutPlanBuilder" component={WorkoutPlanBuilderScreen} />
+      <Stack.Screen name="NutritionPlanBuilder" component={NutritionPlanBuilderScreen} />
     </Stack.Navigator>
   );
 }
 
 export default function App() {
   const [booting, setBooting] = useState(true);
-  const [route, setRoute] = useState/** @type {"auth" | "onboarding" | "main" | "coach" | null} */(null);
+  const [route, setRoute] = useState(null);
 
   const navTheme = useMemo(
     () => ({

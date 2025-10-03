@@ -13,6 +13,8 @@ import {
   Modal,
   useWindowDimensions,
   Image,
+  TextInput,
+  FlatList,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -63,9 +65,9 @@ function useResponsive() {
 
   const HERO_H = Math.round(
     isXSmall ? vh * 24 :
-    isSmall ? vh * 26 :
-    isMedium ? vh * 28 :
-    isTablet ? vh * 25 : vh * 30
+      isSmall ? vh * 26 :
+        isMedium ? vh * 28 :
+          isTablet ? vh * 25 : vh * 30
   );
 
   return { width, height, vw, vh, isXSmall, isSmall, isMedium, isLarge, isTablet, isLandscape, ms, HERO_H };
@@ -101,6 +103,11 @@ const CLIENTS = [
     calorieStatus: "On track",
     nextSession: "Tomorrow 3:00 PM",
     isActive: true,
+    status: "active",
+    goal: "Weight Loss",
+    email: "mike.johnson@email.com",
+    totalSessions: 45,
+    joinDate: "2024-01-15"
   },
   {
     id: 2,
@@ -111,6 +118,11 @@ const CLIENTS = [
     calorieStatus: "300 cal surplus",
     nextSession: "Today 5:30 PM",
     isActive: true,
+    status: "active",
+    goal: "Muscle Gain",
+    email: "emma.wilson@email.com",
+    totalSessions: 32,
+    joinDate: "2024-02-20"
   },
   {
     id: 3,
@@ -121,6 +133,11 @@ const CLIENTS = [
     calorieStatus: "Deficit achieved",
     nextSession: "Friday 2:00 PM",
     isActive: false,
+    status: "paused",
+    goal: "Strength Training",
+    email: "david.chen@email.com",
+    totalSessions: 67,
+    joinDate: "2023-11-10"
   },
   {
     id: 4,
@@ -131,7 +148,42 @@ const CLIENTS = [
     calorieStatus: "150 cal surplus",
     nextSession: "Tomorrow 10:00 AM",
     isActive: true,
+    status: "active",
+    goal: "General Fitness",
+    email: "lisa.martinez@email.com",
+    totalSessions: 28,
+    joinDate: "2024-03-05"
   },
+  {
+    id: 5,
+    name: "John Davis",
+    avatar: "https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=400",
+    lastSession: "1 week ago",
+    progress: 42,
+    calorieStatus: "Starting program",
+    nextSession: "Monday 4:00 PM",
+    isActive: true,
+    status: "trial",
+    goal: "Weight Loss",
+    email: "john.davis@email.com",
+    totalSessions: 3,
+    joinDate: "2024-08-20"
+  },
+  {
+    id: 6,
+    name: "Sarah Kim",
+    avatar: "https://images.pexels.com/photos/3768916/pexels-photo-3768916.jpeg?auto=compress&cs=tinysrgb&w=400",
+    lastSession: "2 weeks ago",
+    progress: 23,
+    calorieStatus: "Program paused",
+    nextSession: "TBD",
+    isActive: false,
+    status: "paused",
+    goal: "Rehabilitation",
+    email: "sarah.kim@email.com",
+    totalSessions: 12,
+    joinDate: "2024-06-15"
+  }
 ];
 
 const TODAY_SESSIONS = [
@@ -162,6 +214,13 @@ const TODAY_SESSIONS = [
     type: "Full Body Workout",
     status: "scheduled",
   },
+];
+
+const STATUS_FILTERS = [
+  { id: "all", label: "All", color: COLORS.muted },
+  { id: "active", label: "Active", color: COLORS.success },
+  { id: "trial", label: "Trial", color: COLORS.warning },
+  { id: "paused", label: "Paused", color: COLORS.danger }
 ];
 
 const ANALYTICS = {
@@ -212,6 +271,42 @@ const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPr
     <Text style={[styles.metricSubtitle, { fontSize: ms(11) }]}>{subtitle}</Text>
   </TouchableOpacity>
 );
+
+const StatusChip = ({ status, onPress, isSelected, ms }) => {
+  const statusInfo = STATUS_FILTERS.find(s => s.id === status) || STATUS_FILTERS[0];
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.statusChip,
+        {
+          paddingVertical: ms(6),
+          paddingHorizontal: ms(12),
+          borderRadius: ms(16),
+          backgroundColor: isSelected ? statusInfo.color : statusInfo.color + "20",
+          borderColor: statusInfo.color,
+          borderWidth: 1,
+          marginRight: ms(8),
+        },
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Text
+        style={[
+          styles.statusChipText,
+          {
+            fontSize: ms(12),
+            color: isSelected ? "white" : statusInfo.color,
+            fontWeight: isSelected ? "600" : "500",
+          },
+        ]}
+      >
+        {statusInfo.label}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 const ClientCard = ({ client, onClientTap, onMessage, onSchedule, ms }) => (
   <TouchableOpacity
@@ -466,6 +561,9 @@ export default function CoachDashboardScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [notificationCount, setNotificationCount] = useState(3);
+  const [showClientsModal, setShowClientsModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState("all");
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -487,19 +585,25 @@ export default function CoachDashboardScreen({ navigation }) {
     Alert.alert("Success", "Dashboard refreshed successfully!");
   };
 
+  // FIXED: Removed navigation to non-existent 'CoachClients' screen
   const onMetricTap = (metricType) => {
-    showDialog(`${metricType.toUpperCase()} Details`, `Detailed view for ${metricType} metric`);
+    if (metricType === "activeClients") {
+      navigation.navigate('CoachClients');
+    } else {
+      showDialog(`${metricType.toUpperCase()} Details`, `Detailed view for ${metricType} metric`);
+    }
   };
-
+  // FIXED: Changed screen name from 'CoachClientProfile' to match App.js registration
   const onClientTap = (client) => {
-    showDialog(
-      `${client.name} Details`,
-      `Progress: ${client.progress}%\nStatus: ${client.calorieStatus}\nNext Session: ${client.nextSession}`
-    );
+    navigation.navigate('CoachClientProfile', {
+      clientId: client.id,
+      client: client
+    });
   };
 
+  // FIXED: Changed from showDialog to actual navigation
   const onMessageClient = (client) => {
-    showDialog(`Message ${client.name}`, "Open chat interface");
+    navigation.navigate('ClientMessaging', { client });
   };
 
   const onScheduleSession = (client) => {
@@ -535,6 +639,26 @@ export default function CoachDashboardScreen({ navigation }) {
   const onEmergencyContact = () => {
     showDialog("Emergency Contact", "Emergency contact features would be available here");
   };
+
+  // Filter and search logic for modal
+  const filteredClients = useMemo(() => {
+    let filtered = CLIENTS;
+
+    if (selectedStatus !== "all") {
+      filtered = filtered.filter(client => client.status === selectedStatus);
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(client =>
+        client.name.toLowerCase().includes(query) ||
+        client.goal.toLowerCase().includes(query) ||
+        client.email.toLowerCase().includes(query)
+      );
+    }
+
+    return filtered;
+  }, [searchQuery, selectedStatus]);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -780,9 +904,9 @@ export default function CoachDashboardScreen({ navigation }) {
           <Text style={[styles.sectionTitle, { fontSize: ms(18), marginBottom: ms(12) }]}>Dashboard Overview</Text>
           <View style={[styles.metricsGrid, { gap: ms(12) }]}>
             <MetricCard
-              title="Active Clients"
+              title="All Clients"
               value={METRICS.activeClients}
-              subtitle="Currently coaching"
+              subtitle="Total clients"
               icon="people-outline"
               color={COLORS.primary}
               onPress={() => onMetricTap("activeClients")}
@@ -875,7 +999,6 @@ export default function CoachDashboardScreen({ navigation }) {
     </View>
   );
 }
-
 /* -------------------- STYLES -------------------- */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bg },
