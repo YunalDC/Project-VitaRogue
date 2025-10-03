@@ -5,8 +5,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import SignInScreen from "./src/screens/SignInScreen";
 import SignUpScreen from "./src/screens/SignUpScreen";
 import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
-<<<<<<< HEAD
-=======
 
 // Coach flow screens
 import CoachSignInScreen from "./src/screens/CoachSignInScreen";
@@ -21,16 +19,13 @@ import WorkoutPlanBuilderScreen from './src/screens/WorkoutPlanBuilderScreen';
 import NutritionPlanBuilderScreen from './src/screens/NutritionPlanBuilderScreen';
 
 import Onboarding from "./src/screens/OnboardingWizard";
->>>>>>> 5146822 (Added workout and nutrition plan builder features)
 import HomeScreen from "./src/screens/HomeScreen";
 import Onboarding from "./src/screens/OnboardingWizard";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
 
 const Stack = createNativeStackNavigator();
 
-<<<<<<< HEAD
-export default function App() {
-=======
+
 function LoadingScreen() {
   return (
     <SafeAreaProvider>
@@ -153,7 +148,6 @@ export default function App() {
 
   if (booting || !route) return <LoadingScreen />;
 
->>>>>>> 5146822 (Added workout and nutrition plan builder features)
   return (
     <NavigationContainer>
       <Stack.Navigator
