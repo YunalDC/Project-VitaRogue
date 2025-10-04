@@ -231,6 +231,7 @@ function CoachStack({ coachProfileComplete, coachProfile }) {
       <Stack.Screen name="WorkoutPlanBuilder" component={WorkoutPlanBuilderScreen} />
       <Stack.Screen name="NutritionPlanBuilder" component={NutritionPlanBuilderScreen} />
       <Stack.Screen name="UpdateCoachClientProfile" component={UpdateCoachClientProfile} />
+      <Stack.Screen name="CoachSettings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 }

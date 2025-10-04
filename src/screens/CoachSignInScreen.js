@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, Alert, ScrollView, SafeAreaView, Keyboard, TouchableWithoutFeedback
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons as Icon } from "@expo/vector-icons";
@@ -151,7 +160,7 @@ export default function CoachSignInScreen({ navigation }) {
               <Text style={styles.linkText}>New coach? Create an account</Text>
             </TouchableOpacity>
             <Text style={{ color: "#a8a8a8", fontSize: 14 }}>Are you a customer?</Text>
-            <TouchableOpacity onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })} activeOpacity={0.8}>
+            <TouchableOpacity onPress={() => navigation.navigate("SignIn")} activeOpacity={0.8}>
               <Text style={styles.linkText}>Go to User Sign In</Text>
             </TouchableOpacity>
           </View>

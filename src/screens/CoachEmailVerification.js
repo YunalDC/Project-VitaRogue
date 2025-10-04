@@ -1,8 +1,18 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, SafeAreaView, KeyboardAvoidingView,
-  Platform, ScrollView, Dimensions, Alert, Keyboard, TouchableWithoutFeedback
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Dimensions,
+  Alert,
+  Keyboard,
+  TouchableWithoutFeedback
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons as Icon } from "@expo/vector-icons";

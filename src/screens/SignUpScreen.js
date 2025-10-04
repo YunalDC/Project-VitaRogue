@@ -9,11 +9,11 @@ import {
   Alert,
   ScrollView,
   Dimensions,
-  SafeAreaView,
   Image,
   Keyboard,
-  TouchableWithoutFeedback,
+  TouchableWithoutFeedback
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons as Icon } from "@expo/vector-icons";

@@ -8,7 +8,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -16,8 +15,9 @@ import {
   Animated,
   Dimensions,
   StatusBar,
-  Alert,
+  Alert
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons as Icon } from "@expo/vector-icons";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";

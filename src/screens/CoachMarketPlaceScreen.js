@@ -11,12 +11,11 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
-  SafeAreaView,
-  ScrollView,
+  ScrollView
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 
 /* -------- Enable LayoutAnimation on Android -------- */
 if (Platform.OS === "android") {

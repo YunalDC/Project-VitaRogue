@@ -1,8 +1,19 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, Image, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, Alert, ScrollView, Dimensions, SafeAreaView, Keyboard, TouchableWithoutFeedback
+  View,
+  Text,
+  Image,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  ScrollView,
+  Dimensions,
+  Keyboard,
+  TouchableWithoutFeedback
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons as Icon } from "@expo/vector-icons";
@@ -54,10 +65,11 @@ export default function SignInScreen({ navigation }) {
       }
 
       if (!onboardingComplete) {
-        navigation.reset({ index: 0, routes: [{ name: "Onboarding" }] });
-      } else {
-        navigation.reset({ index: 0, routes: [{ name: "Home", params: { email: user.email } }] });
+        return;
       }
+
+      // Navigation is handled by the auth state listener once Firebase updates.
+      return;
     } catch (e) {
       Alert.alert("Sign In Failed", e.message);
     } finally {

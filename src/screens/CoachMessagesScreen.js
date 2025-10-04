@@ -6,9 +6,9 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  TextInput,
-  SafeAreaView,
+  TextInput
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 const BG = "#0B1220";

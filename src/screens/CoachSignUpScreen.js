@@ -1,8 +1,17 @@
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, KeyboardAvoidingView,
-  Platform, Alert, ScrollView, SafeAreaView, Keyboard, TouchableWithoutFeedback
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  ScrollView,
+  Keyboard,
+  TouchableWithoutFeedback
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons as Icon } from "@expo/vector-icons";
@@ -87,7 +96,7 @@ export default function CoachSignUpScreen({ navigation }) {
       }
 
       Alert.alert("Account created", "We sent a verification link to your email.", [
-        { text: "OK", onPress: () => navigation.reset({ index: 0, routes: [{ name: "CoachEmail" }] }) },
+        { text: "OK", onPress: () => navigation.navigate("CoachEmail") },
       ]);
     } catch (e) {
       Alert.alert("Coach Sign Up Failed", e.message);
@@ -213,7 +222,7 @@ export default function CoachSignUpScreen({ navigation }) {
             <TouchableOpacity onPress={() => navigation.replace("CoachSignIn")} activeOpacity={0.8} style={{ marginBottom: 6 }}>
               <Text style={styles.linkText}>Already have a coach account? Sign in</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })} activeOpacity={0.8}>
+            <TouchableOpacity onPress={() => navigation.navigate("SignIn")} activeOpacity={0.8}>
               <Text style={styles.linkText}>I’m a customer — go to User Sign In</Text>
             </TouchableOpacity>
           </View>

@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   ScrollView,
   StyleSheet,
   Dimensions,
@@ -19,6 +20,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { logOut } from "../lib/auth";
 
 /* -------------------- THEME -------------------- */
 const COLORS = {
@@ -564,6 +566,8 @@ export default function CoachDashboardScreen({ navigation }) {
   const [showClientsModal, setShowClientsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -575,6 +579,40 @@ export default function CoachDashboardScreen({ navigation }) {
 
   const showDialog = (title, message) => {
     Alert.alert(title, message);
+  };
+
+  const navigateToCoachSettings = () => {
+    setSettingsVisible(false);
+    navigation.navigate('CoachSettings');
+  };
+
+  const performLogout = async () => {
+    if (loggingOut) return;
+    try {
+      setLoggingOut(true);
+      await logOut();
+    } catch (error) {
+      setLoggingOut(false);
+      Alert.alert('Logout failed', error?.message || 'Please try again.');
+    }
+  };
+
+  const confirmLogout = () => {
+    Alert.alert(
+      'Log out',
+      'You will be signed out of your coach account.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log out',
+          style: 'destructive',
+          onPress: () => {
+            setSettingsVisible(false);
+            performLogout();
+          },
+        },
+      ],
+    );
   };
 
   const onRefresh = async () => {
@@ -820,7 +858,7 @@ export default function CoachDashboardScreen({ navigation }) {
             onPress={() =>
               showDialog(
                 `Notifications (${notificationCount})`,
-                "• New client milestone achieved\n• Session reminder: Emma Wilson\n• Weekly report available"
+                "\u2022 New client milestone achieved\n\u2022 Session reminder: Emma Wilson\n\u2022 Weekly report available"
               )
             }
           >
@@ -848,6 +886,18 @@ export default function CoachDashboardScreen({ navigation }) {
             onPress={() => showDialog("Coach Profile", `Navigate to ${COACH_INFO.name} profile settings`)}
           >
             <Ionicons name="person-outline" size={ms(18)} color="#cbd5e1" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => setSettingsVisible(true)}
+            disabled={loggingOut}
+          >
+            <Ionicons
+              name="settings-outline"
+              size={ms(18)}
+              color={loggingOut ? "#64748b" : "#cbd5e1"}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -978,6 +1028,71 @@ export default function CoachDashboardScreen({ navigation }) {
         </View>
       </ScrollView>
 
+      <Modal
+        visible={settingsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSettingsVisible(false)}
+      >
+        <View style={styles.settingsBackdrop}>
+          <TouchableWithoutFeedback onPress={() => setSettingsVisible(false)}>
+            <View style={styles.settingsBackdropSpacer} />
+          </TouchableWithoutFeedback>
+
+          <View
+            style={[
+              styles.settingsSheet,
+              { paddingBottom: insets.bottom + ms(12) },
+            ]}
+          >
+            <View style={styles.settingsHandle} />
+            <Text style={[styles.settingsTitle, { fontSize: ms(16) }]}>Coach Options</Text>
+
+            <TouchableOpacity
+              style={[styles.settingsOption, { paddingVertical: ms(12) }]}
+              onPress={navigateToCoachSettings}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.settingsOptionIcon, { backgroundColor: COLORS.card2 }]}>
+                <Ionicons name="settings-outline" size={ms(18)} color={COLORS.text} />
+              </View>
+              <View style={styles.settingsOptionCopy}>
+                <Text style={[styles.settingsOptionLabel, { fontSize: ms(14) }]}>Open Settings</Text>
+                <Text style={[styles.settingsOptionMeta, { fontSize: ms(12) }]}>Manage profile and preferences</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={ms(16)} color={COLORS.muted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.settingsOption,
+                styles.settingsOptionDanger,
+                { paddingVertical: ms(12) },
+                loggingOut && { opacity: 0.6 },
+              ]}
+              onPress={confirmLogout}
+              activeOpacity={0.85}
+              disabled={loggingOut}
+            >
+              <View style={[styles.settingsOptionIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+                <Ionicons name="log-out-outline" size={ms(18)} color={COLORS.danger} />
+              </View>
+              <View style={styles.settingsOptionCopy}>
+                <Text
+                  style={[
+                    styles.settingsOptionLabel,
+                    { fontSize: ms(14), color: COLORS.danger },
+                  ]}
+                >
+                  {loggingOut ? 'Logging out...' : 'Log Out'}
+                </Text>
+                <Text style={[styles.settingsOptionMeta, { fontSize: ms(12) }]}>End current session</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingContent}>
@@ -1085,6 +1200,18 @@ const styles = StyleSheet.create({
 
   pbBg: { backgroundColor: COLORS.border, overflow: "hidden", width: "100%" },
   pbFill: { height: "100%" },
+
+  settingsBackdrop: { flex: 1, backgroundColor: COLORS.bg + "CC", justifyContent: "flex-end" },
+  settingsBackdropSpacer: { flex: 1 },
+  settingsSheet: { backgroundColor: COLORS.card, marginHorizontal: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 16, paddingTop: 12 },
+  settingsHandle: { alignSelf: "center", width: 36, height: 4, borderRadius: 2, backgroundColor: "#334155", marginBottom: 12 },
+  settingsTitle: { color: COLORS.text, fontWeight: "700", marginBottom: 12 },
+  settingsOption: { flexDirection: "row", alignItems: "center", backgroundColor: COLORS.card2, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 12, marginBottom: 12 },
+  settingsOptionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  settingsOptionCopy: { flex: 1 },
+  settingsOptionLabel: { color: COLORS.text, fontWeight: "600" },
+  settingsOptionMeta: { color: COLORS.muted, marginTop: 2 },
+  settingsOptionDanger: { backgroundColor: COLORS.card, borderColor: COLORS.danger + "33" },
 
   loadingOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: COLORS.bg + "F0", alignItems: "center", justifyContent: "center" },
   loadingContent: { alignItems: "center", justifyContent: "center" },
