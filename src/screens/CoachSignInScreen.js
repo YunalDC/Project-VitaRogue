@@ -5,10 +5,11 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { signIn } from "../lib/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebaseApp";
+import { setAuthInitialRoute } from "../state/authRoute";
 
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
@@ -26,6 +27,10 @@ export default function CoachSignInScreen({ navigation }) {
     const show = Keyboard.addListener("keyboardDidShow", () => setKbVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKbVisible(false));
     return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  useEffect(() => {
+    setAuthInitialRoute("CoachSignIn");
   }, []);
 
   const onCoachSignIn = async () => {
@@ -59,7 +64,8 @@ export default function CoachSignInScreen({ navigation }) {
         await setDoc(cref, { lastLoginAt: serverTimestamp() }, { merge: true });
       }
 
-      navigation.reset({ index: 0, routes: [{ name: "CoachDashboard" }] });
+      // Navigation will switch to the coach stack via the auth listener in App.js.
+      return;
     } catch (e) {
       Alert.alert("Coach Sign In Failed", e.message);
     } finally {

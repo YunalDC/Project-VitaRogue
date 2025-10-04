@@ -5,10 +5,11 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { signIn } from "../lib/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebaseApp";
+import { setAuthInitialRoute } from "../state/authRoute";
 
 const { width } = Dimensions.get("window");
 const ACCENT = "#34d399";
@@ -28,6 +29,10 @@ export default function SignInScreen({ navigation }) {
     const show = Keyboard.addListener("keyboardDidShow", () => setKbVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKbVisible(false));
     return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  useEffect(() => {
+    setAuthInitialRoute("SignIn");
   }, []);
 
   const onSignIn = async () => {

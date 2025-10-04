@@ -548,6 +548,20 @@ export default function HomeScreen({ route, navigation }) {
     else Alert.alert("Coming soon", `${name} isn't wired up yet.`);
   };
 
+  const exploreTiles = useMemo(
+    () => [
+      { key: 'discover', title: 'Discover', subtitle: 'Curated wellness ideas', icon: 'planet-outline', screen: 'Discover' },
+      { key: 'news', title: 'Fitness News', subtitle: 'Latest industry updates', icon: 'newspaper-outline', screen: 'FitnessNews' },
+      { key: 'gyms', title: 'Nearby Gyms', subtitle: 'Find training spots nearby', icon: 'location-outline', screen: 'NearbyGyms' },
+      { key: 'habits', title: 'Healthy Habits', subtitle: 'Build sustainable routines', icon: 'leaf-outline', screen: 'HealthyHabits' },
+      { key: 'workouts', title: 'Workouts', subtitle: 'Programs & sessions', icon: 'barbell-outline', screen: 'Workouts' },
+      { key: 'sleep', title: 'Sleep', subtitle: 'Track recovery quality', icon: 'moon-outline', screen: 'Sleep' },
+      { key: 'dishes', title: 'Healthy Dishes', subtitle: 'Fresh meal inspiration', icon: 'restaurant-outline', screen: 'HealthyDishes' },
+      { key: 'chat', title: 'Coach Chat', subtitle: 'Message your coach', icon: 'chatbubble-ellipses-outline', screen: 'ChatList' },
+    ],
+    []
+  );
+
   const onMomentumScrollEnd = (e) => {
     const idx = Math.round(e.nativeEvent.contentOffset.x / width);
     setPage(idx);
@@ -1057,16 +1071,20 @@ export default function HomeScreen({ route, navigation }) {
             { gap: ms(12) }
           ]}>
             {/* Enhanced BMI with color coding */}
-            <View style={[
-              styles.tile, 
-              { 
-                flex: 1,
-                padding: ms(14), 
-                borderRadius: ms(14),
-                borderWidth: 1,
-                borderColor: bmi ? (bmiColor + '40') : COLORS.border,
-              }
-            ]}>
+            <TouchableOpacity
+              style={[
+                styles.tile, 
+                { 
+                  flex: 1,
+                  padding: ms(14), 
+                  borderRadius: ms(14),
+                  borderWidth: 1,
+                  borderColor: bmi ? (bmiColor + '40') : COLORS.border,
+                }
+              ]}
+              activeOpacity={0.85}
+              onPress={() => safeNav("BMI")}
+            >
               <View style={[styles.tileHeader, { marginBottom: ms(8) }]}>
                 <Text style={[styles.tileTitle, { fontSize: ms(14) }]}>BMI</Text>
                 <View style={[
@@ -1099,7 +1117,7 @@ export default function HomeScreen({ route, navigation }) {
               ]}>
                 {bmiLabel}
               </Text>
-            </View>
+            </TouchableOpacity>
 
             {/* Enhanced Calories Target with progress */}
             <View style={[
@@ -1257,99 +1275,58 @@ export default function HomeScreen({ route, navigation }) {
               </TouchableOpacity>
             </View>
           )}
-        </View>
 
-        {/* Quick Actions based on user needs */}
-        <View style={[
-          styles.quickActions,
-          { 
-            paddingHorizontal: ms(16), 
-            paddingTop: ms(16),
-            gap: ms(8)
-          }
-        ]}>
-          <Text style={[styles.sectionTitle, { fontSize: ms(16), marginBottom: ms(8) }]}>
-            Quick Actions
-          </Text>
-          
-          <View style={{ flexDirection: 'row', gap: ms(8) }}>
-            {consumedKcal < baseGoal * 0.3 && (
+          <View
+            style={[
+              styles.tilesRow,
+              {
+                flexWrap: 'wrap',
+                gap: ms(12),
+              },
+            ]}
+          >
+            {exploreTiles.map((tile) => (
               <TouchableOpacity
+                key={tile.key}
                 style={[
-                  styles.quickActionBtn,
-                  { 
-                    flex: 1,
-                    paddingVertical: ms(12), 
-                    paddingHorizontal: ms(16), 
-                    borderRadius: ms(10),
-                    backgroundColor: COLORS.primary + '20',
-                    borderColor: COLORS.primary,
+                  styles.tile,
+                  {
+                    flexBasis: isTablet ? '30%' : '48%',
+                    flexGrow: 1,
+                    padding: ms(14),
+                    borderRadius: ms(14),
                     borderWidth: 1,
+                    borderColor: COLORS.border,
+                    alignItems: 'center',
                   },
                 ]}
-                onPress={() => navigation.navigate("FoodScanning")}
+                activeOpacity={0.82}
+                onPress={() => safeNav(tile.screen)}
               >
-                <Ionicons name="camera" size={ms(20)} color={COLORS.primary} />
-                <Text style={[
-                  styles.quickActionText, 
-                  { fontSize: ms(12), color: COLORS.primary, marginTop: ms(4) }
-                ]}>
-                  Log Meal
+                <View
+                  style={{
+                    width: ms(40),
+                    height: ms(40),
+                    borderRadius: ms(20),
+                    backgroundColor: COLORS.primary + '15',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: ms(10),
+                  }}
+                >
+                  <Ionicons name={tile.icon} size={ms(20)} color="#cbd5e1" />
+                </View>
+                <Text style={[styles.tileTitle, { fontSize: ms(14), textAlign: 'center' }]}>{tile.title}</Text>
+                <Text
+                  style={[
+                    styles.tileSub,
+                    { fontSize: ms(11), marginTop: ms(4), textAlign: 'center' },
+                  ]}
+                >
+                  {tile.subtitle}
                 </Text>
               </TouchableOpacity>
-            )}
-
-            {!todayWorkout && profile?.fitnessLevel !== 'Sedentary' && (
-              <TouchableOpacity
-                style={[
-                  styles.quickActionBtn,
-                  { 
-                    flex: 1,
-                    paddingVertical: ms(12), 
-                    paddingHorizontal: ms(16), 
-                    borderRadius: ms(10),
-                    backgroundColor: COLORS.secondary + '20',
-                    borderColor: COLORS.secondary,
-                    borderWidth: 1,
-                  },
-                ]}
-                onPress={() => navigation.navigate("ExerciseRecommendations")}
-              >
-                <Ionicons name="fitness" size={ms(20)} color={COLORS.secondary} />
-                <Text style={[
-                  styles.quickActionText, 
-                  { fontSize: ms(12), color: COLORS.secondary, marginTop: ms(4) }
-                ]}>
-                  Start Workout
-                </Text>
-              </TouchableOpacity>
-            )}
-
-            {!latestWeight && (
-              <TouchableOpacity
-                style={[
-                  styles.quickActionBtn,
-                  { 
-                    flex: 1,
-                    paddingVertical: ms(12), 
-                    paddingHorizontal: ms(16), 
-                    borderRadius: ms(10),
-                    backgroundColor: COLORS.accent + '20',
-                    borderColor: COLORS.accent,
-                    borderWidth: 1,
-                  },
-                ]}
-                onPress={() => safeNav("WeightTracking")}
-              >
-                <Ionicons name="scale" size={ms(20)} color={COLORS.accent} />
-                <Text style={[
-                  styles.quickActionText, 
-                  { fontSize: ms(12), color: COLORS.accent, marginTop: ms(4) }
-                ]}>
-                  Log Weight
-                </Text>
-              </TouchableOpacity>
-            )}
+            ))}
           </View>
         </View>
       </ScrollView>

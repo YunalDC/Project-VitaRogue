@@ -5,10 +5,11 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, firebaseAuth } from "../lib/firebaseApp";
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
+import { setAuthInitialRoute } from "../state/authRoute";
 
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
@@ -31,6 +32,10 @@ export default function CoachSignUpScreen({ navigation }) {
     const show = Keyboard.addListener("keyboardDidShow", () => setKbVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKbVisible(false));
     return () => { show.remove(); hide.remove(); };
+  }, []);
+
+  useEffect(() => {
+    setAuthInitialRoute("CoachSignUp");
   }, []);
 
   const onCoachSignUp = async () => {

@@ -34,7 +34,7 @@ export default function SettingsScreen({ navigation }) {
   const onLogout = async () => {
     try {
       await signOut(firebaseAuth);
-      navigation.reset({ index: 0, routes: [{ name: "SignIn" }] });
+      // Auth state listener will reroute to the auth stack once signOut completes.
     } catch {
       // no-op; your auth gate will still handle state
     }
@@ -114,6 +114,99 @@ export default function SettingsScreen({ navigation }) {
             <View style={styles.rowLeft}>
               <Ionicons name="people-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
               <Text style={styles.rowLabel}>Find a coach</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* App sections */}
+        <View style={styles.card}>
+          <Text style={styles.section}>App settings</Text>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("AccountSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="person-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Account settings</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("ProfileGoalsSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="trophy-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Goals & profile</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("NutritionSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="restaurant-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Nutrition preferences</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("NotificationSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="notifications-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Notifications</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("UnitsDisplaySettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="speedometer-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Units & display</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("PrivacyDataSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="shield-checkmark-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Privacy & data</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("SupportSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="help-circle-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>Support & help</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => navigation.navigate("AboutSettings")}
+          >
+            <View style={styles.rowLeft}>
+              <Ionicons name="information-circle-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />
+              <Text style={styles.rowLabel}>About VitaRogue</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={COLORS.muted} />
           </TouchableOpacity>

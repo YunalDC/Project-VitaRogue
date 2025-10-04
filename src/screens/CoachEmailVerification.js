@@ -5,10 +5,11 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { getAuth, sendEmailVerification, reload } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { setAuthInitialRoute } from "../state/authRoute";
 
 const { width } = Dimensions.get("window");
 const ACCENT = "#34d399";
@@ -23,6 +24,10 @@ export default function CoachEmailVerification({ navigation }) {
   const [email, setEmail] = useState(user?.email || "");
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const [emailFocused, setEmailFocused] = useState(false);
+
+  useEffect(() => {
+    setAuthInitialRoute("CoachEmail");
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -76,7 +81,7 @@ export default function CoachEmailVerification({ navigation }) {
           emailVerifiedAt: serverTimestamp(),
         });
         Alert.alert("Success", "Your email is verified.", [
-          { text: "Continue", onPress: () => navigation.reset({ index: 0, routes: [{ name: "CoachDashboard" }] }) },
+          { text: "Continue", onPress: () => navigation.navigate("CoachSignIn") },
         ]);
       } else {
         Alert.alert("Not verified yet", "Please tap the link in the email we sent, then try again.");
@@ -100,7 +105,7 @@ export default function CoachEmailVerification({ navigation }) {
       <View style={[styles.centerWrap, { justifyContent: "center" }]}>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
           <TouchableOpacity
-            onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })}
+            onPress={() => navigation.navigate("SignIn")}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             activeOpacity={0.8}
             style={{ flexDirection: "row", alignItems: "center" }}
@@ -189,7 +194,7 @@ export default function CoachEmailVerification({ navigation }) {
         </View>
 
         <View style={styles.footerBlock}>
-          <TouchableOpacity onPress={() => navigation.reset({ index: 0, routes: [{ name: "SignIn" }] })} activeOpacity={0.7}>
+          <TouchableOpacity onPress={() => navigation.navigate("SignIn")} activeOpacity={0.7}>
             <Text style={styles.linkText}>Back</Text>
           </TouchableOpacity>
         </View>

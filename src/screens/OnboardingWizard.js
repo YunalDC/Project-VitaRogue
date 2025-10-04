@@ -1,6 +1,6 @@
 // /src/screens/OnboardingWizard.jsx
 // Enhanced one-question-per-page onboarding flow with stable, label-above inputs
-// Requires: expo-linear-gradient, @react-navigation/native, @react-navigation/stack, react-native-vector-icons/Ionicons
+// Requires: expo-linear-gradient, @react-navigation/native, @react-navigation/stack, @expo/vector-icons/Ionicons
 
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
@@ -19,7 +19,7 @@ import {
   Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, firebaseAuth } from "../lib/firebaseApp";
 

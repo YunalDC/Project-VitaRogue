@@ -16,8 +16,9 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import Icon from "react-native-vector-icons/Ionicons";
+import { Ionicons as Icon } from "@expo/vector-icons";
 import { signUp } from "../lib/auth";
+import { setAuthInitialRoute } from "../state/authRoute";
 
 const { width, height } = Dimensions.get("window");
 
@@ -47,6 +48,10 @@ export default function SignUpScreen({ navigation }) {
       show.remove();
       hide.remove();
     };
+  }, []);
+
+  useEffect(() => {
+    setAuthInitialRoute("SignUp");
   }, []);
 
   const getPasswordStrength = (password) => {
