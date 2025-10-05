@@ -21,11 +21,10 @@ function hydrate() {
   if (!hydrationPromise) {
     hydrationPromise = (async () => {
       try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored && typeof stored === "string" && stored !== currentRoute) {
-          currentRoute = stored;
-          notify();
-        }
+        // Clear any stored route and always start with SignIn
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        currentRoute = DEFAULT_ROUTE;
+        notify();
       } catch (error) {
         console.warn("Failed to hydrate auth initial route", error);
       }

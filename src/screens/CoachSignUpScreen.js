@@ -56,52 +56,83 @@ export default function CoachSignUpScreen({ navigation }) {
     try {
       setLoading(true);
 
+      // Create Firebase auth user
       const cred = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), pw);
       const user = cred.user;
 
-      // Update display name
-      await updateProfile(user, { displayName: name.trim() });
+      // Update display name in Firebase Auth
+      await updateProfile(user, { 
+        displayName: name.trim()
+      });
 
-      // Create/merge user document with coach role
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          role: "coach",
-          email: user.email,
-          displayName: name.trim(),
-          coachEmailVerified: !!user.emailVerified,
-          coachProfileComplete: false,
-          coachAccountStatus: "active",
-          onboardingComplete: true, // you can change to false if you build a coach-onboarding wizard
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      const timestamp = serverTimestamp();
+      const userData = {
+        role: "coach",
+        email: user.email,
+        displayName: name.trim(),
+        coachEmailVerified: !!user.emailVerified,
+        coachProfileComplete: false,
+        coachAccountStatus: "active",
+        onboardingComplete: true,
+        createdAt: timestamp,
+        lastLoginAt: timestamp
+      };
 
-      // Create/merge coach profile (optional)
-      await setDoc(
-        doc(db, "coaches", user.uid),
-        {
-          email: user.email,
-          name: name.trim(),
-          profileComplete: false,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      const coachData = {
+        email: user.email,
+        name: name.trim(),
+        title: "Certified Personal Trainer",
+        profileComplete: false,
+        createdAt: timestamp,
+        lastLoginAt: timestamp,
+        experience: 0,
+        rating: 0,
+        specialization: "Fitness Coach",
+        avatar: user.photoURL || null,
+        clients: [],
+        sessions: [],
+        certifications: [],
+        active: true,
+        bio: "",
+        availability: {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: [],
+          sunday: []
+        }
+      };
 
-      // Send verification and route to CoachEmail verification screen
+      // Create both documents simultaneously
+      await Promise.all([
+        setDoc(doc(db, "users", user.uid), userData),
+        setDoc(doc(db, "coaches", user.uid), coachData)
+      ]);
+
+      // Send verification email
       try {
         await sendEmailVerification(user);
       } catch (e) {
         console.warn("Email verification error:", e?.message);
       }
 
-      Alert.alert("Account created", "We sent a verification link to your email.", [
-        { text: "OK", onPress: () => navigation.navigate("CoachEmail") },
-      ]);
+      Alert.alert(
+        "Account Created Successfully", 
+        "Welcome to VitaRogue! We've sent a verification link to your email.", 
+        [{ 
+          text: "Continue", 
+          onPress: () => navigation.navigate("CoachEmail") 
+        }]
+      );
+
     } catch (e) {
-      Alert.alert("Coach Sign Up Failed", e.message);
+      console.error("Coach Sign Up Failed:", e);
+      Alert.alert(
+        "Sign Up Failed", 
+        e.message || "An error occurred during sign up. Please try again."
+      );
     } finally {
       setLoading(false);
     }

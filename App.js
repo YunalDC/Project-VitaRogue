@@ -17,6 +17,8 @@ import CoachSignInScreen from "./src/screens/CoachSignInScreen";
 import CoachSignUpScreen from "./src/screens/CoachSignUpScreen";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
 import CoachDashboardScreen from "./src/screens/CoachDashboardScreen";
+import UpdateCoachProfileScreen from "./src/screens/UpdateCoachProfileScreen";
+import CoachVerificationScreen from "./src/screens/CoachVerificationScreen";
 
 import CoachClientsScreen from "./src/screens/CoachClientsScreen";
 import CoachClientProfile from "./src/screens/CoachClientProfile";
@@ -231,7 +233,19 @@ function CoachStack({ coachProfileComplete, coachProfile }) {
       <Stack.Screen name="WorkoutPlanBuilder" component={WorkoutPlanBuilderScreen} />
       <Stack.Screen name="NutritionPlanBuilder" component={NutritionPlanBuilderScreen} />
       <Stack.Screen name="UpdateCoachClientProfile" component={UpdateCoachClientProfile} />
+      <Stack.Screen 
+        name="CoachVerification" 
+        component={CoachVerificationScreen}
+        options={{
+          headerShown: true,
+          title: "Coach Verification",
+          headerStyle: { backgroundColor: "#0B1220" },
+          headerTintColor: "#e5e7eb",
+          headerTitleStyle: { fontWeight: "bold" },
+        }}
+      />
       <Stack.Screen name="CoachSettings" component={SettingsScreen} />
+      <Stack.Screen name="UpdateCoachProfile" component={UpdateCoachProfileScreen} />
     </Stack.Navigator>
   );
 }
@@ -466,8 +480,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar barStyle="light-content" backgroundColor="#0b1220" translucent={Platform.OS === "android"} />
-      <NavigationContainer theme={navTheme}>
-        {route === "auth" && <AuthStack initialRouteName={authInitialRouteState} />}
+      <NavigationContainer 
+        theme={navTheme}
+        initialState={null}
+      >
+        {route === "auth" && <AuthStack initialRouteName="SignIn" />}
         {route === "onboarding" && <OnboardingStack />}
         {route === "main" && <MainStack />}
         {route === "coach" && (

@@ -20,7 +20,11 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We use your location to find nearby gyms."
+        "NSLocationWhenInUseUsageDescription": "We use your location to find nearby gyms.",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true,
+        "NSPhotoLibraryUsageDescription": "We need access to your photos to allow you to upload certification documents.",
+        "NSDocumentPickerUsageDescription": "We need access to your files to allow you to upload certification documents."
       },
       "config": {
         "googleMapsApiKey": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA"
@@ -35,8 +39,8 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ],
       "config": {
         "googleMaps": {

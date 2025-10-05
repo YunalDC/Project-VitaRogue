@@ -21,6 +21,8 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { logOut } from "../lib/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db, firebaseAuth } from "../lib/firebaseApp";
 
 /* -------------------- THEME -------------------- */
 const COLORS = {
@@ -76,14 +78,16 @@ function useResponsive() {
 }
 
 /* -------------------- MOCK DATA -------------------- */
-const COACH_INFO = {
-  id: 1,
-  name: "Sarah Thompson",
-  title: "Certified Personal Trainer",
-  avatar: "https://images.pexels.com/photos/3768916/pexels-photo-3768916.jpeg?auto=compress&cs=tinysrgb&w=400",
-  rating: 4.9,
-  experience: 8,
-  specialization: "Strength & Conditioning",
+// Coach info will be fetched from Firebase
+const defaultCoachInfo = {
+  id: '',
+  name: '',
+  title: 'Coach',
+  avatar: 'https://via.placeholder.com/400',
+  rating: 0,
+  experience: 0,
+  specialization: '',
+  verificationStatus: 'unverified'
 };
 
 const METRICS = {
@@ -561,17 +565,88 @@ export default function CoachDashboardScreen({ navigation }) {
   const { width, isXSmall, isSmall, isTablet, ms, HERO_H } = useResponsive();
 
   const [activeTab, setActiveTab] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [notificationCount, setNotificationCount] = useState(3);
   const [showClientsModal, setShowClientsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [coachInfo, setCoachInfo] = useState(defaultCoachInfo);
+
+  // Fetch coach data when component mounts
+  useEffect(() => {
+    const fetchCoachData = async () => {
+      try {
+        setIsLoading(true);
+        const user = firebaseAuth.currentUser;
+        if (!user) {
+          console.warn('No user found in firebaseAuth');
+          setIsLoading(false);
+          return;
+        }
+
+        // Get user document first
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const userData = userDoc.exists() ? userDoc.data() : {};
+
+        // Get coach document
+        const coachDoc = await getDoc(doc(db, 'coaches', user.uid));
+        const coachData = coachDoc.exists() ? coachDoc.data() : {};
+        
+        setCoachInfo({
+          id: user.uid,
+          name: coachData.name || userData.displayName || user.displayName || 'Coach',
+          title: coachData.title || userData.title || 'Certified Personal Trainer',
+          avatar: coachData.avatar || userData.photoURL || user.photoURL || defaultCoachInfo.avatar,
+          rating: coachData.rating || 0,
+          experience: coachData.experience || 0,
+          specialization: coachData.specialization || 'Fitness Coach',
+          verificationStatus: coachData.verificationStatus || 'unverified'
+        });
+
+        // If coach document doesn't exist, create it with basic info
+        if (!coachDoc.exists()) {
+          try {
+            await setDoc(doc(db, 'coaches', user.uid), {
+              name: user.displayName || 'Coach',
+              email: user.email,
+              createdAt: serverTimestamp(),
+              lastLoginAt: serverTimestamp(),
+              profileComplete: false
+            }, { merge: true });
+          } catch (error) {
+            console.warn('Error creating initial coach document:', error);
+          }
+        }
+
+      } catch (error) {
+        console.error('Error fetching coach data:', error);
+        Alert.alert(
+          'Error Loading Profile', 
+          'Failed to load your coach profile. Please try again later.',
+          [{ text: 'OK' }]
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCoachData();
+
+    // Set up auth state listener to refresh data when auth state changes
+    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+      if (user) {
+        fetchCoachData();
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    const name = COACH_INFO.name.split(" ")[0];
+    const name = coachInfo.name.split(" ")[0];
     if (hour < 12) return `Good morning, ${name}!`;
     if (hour < 18) return `Good afternoon, ${name}!`;
     return `Good evening, ${name}!`;
@@ -836,7 +911,7 @@ export default function CoachDashboardScreen({ navigation }) {
       >
         <View style={styles.headerLeft}>
           <Image
-            source={{ uri: COACH_INFO.avatar }}
+            source={{ uri: coachInfo.avatar }}
             style={[
               styles.headerAvatar,
               {
@@ -921,7 +996,7 @@ export default function CoachDashboardScreen({ navigation }) {
         >
           <View style={styles.coachInfo}>
             <Image
-              source={{ uri: COACH_INFO.avatar }}
+              source={{ uri: coachInfo.avatar }}
               style={[
                 styles.coachAvatar,
                 {
@@ -932,19 +1007,44 @@ export default function CoachDashboardScreen({ navigation }) {
               ]}
             />
             <View style={{ flex: 1, marginLeft: ms(16) }}>
-              <Text style={[styles.coachName, { fontSize: ms(20) }]}>{COACH_INFO.name}</Text>
-              <Text style={[styles.coachTitle, { fontSize: ms(14) }]}>{COACH_INFO.title}</Text>
+              <View style={styles.nameVerificationContainer}>
+                <Text style={[styles.coachName, { fontSize: ms(20) }]}>{coachInfo.name}</Text>
+                <TouchableOpacity 
+                  style={[
+                    styles.verificationBadge,
+                    { backgroundColor: coachInfo.verificationStatus === 'verified' ? '#32cd32' : '#ff6b6b' }
+                  ]}
+                  onPress={() => {
+                    if (coachInfo.verificationStatus !== 'verified') {
+                      navigation.navigate('CoachVerification', {
+                        coachId: firebaseAuth.currentUser?.uid
+                      });
+                    }
+                  }}
+                  disabled={coachInfo.verificationStatus === 'verified'}
+                >
+                  <Ionicons
+                    name={coachInfo.verificationStatus === 'verified' ? 'checkmark-circle' : 'close-circle'}
+                    size={ms(16)}
+                    color="#fff"
+                  />
+                  <Text style={styles.verificationText}>
+                    {coachInfo.verificationStatus === 'verified' ? 'Verified' : 'Unverified'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={[styles.coachTitle, { fontSize: ms(14) }]}>{coachInfo.title}</Text>
               <View style={styles.coachStats}>
                 <View style={styles.statItem}>
                   <Ionicons name="star" size={ms(14)} color={COLORS.accent} />
-                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{COACH_INFO.rating}</Text>
+                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{coachInfo.rating || '0.0'}</Text>
                 </View>
                 <View style={styles.statItem}>
                   <Ionicons name="time-outline" size={ms(14)} color={COLORS.muted} />
-                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{COACH_INFO.experience}y exp</Text>
+                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{coachInfo.experience || '0'}y exp</Text>
                 </View>
               </View>
-              <Text style={[styles.coachSpecialization, { fontSize: ms(12) }]}>{COACH_INFO.specialization}</Text>
+              <Text style={[styles.coachSpecialization, { fontSize: ms(12) }]}>{coachInfo.specialization}</Text>
             </View>
           </View>
         </View>
@@ -1130,7 +1230,31 @@ const styles = StyleSheet.create({
   coachHeader: { backgroundColor: COLORS.card },
   coachInfo: { flexDirection: "row", alignItems: "center" },
   coachAvatar: { backgroundColor: COLORS.card2 },
-  coachName: { color: COLORS.text, fontWeight: "800" },
+  nameVerificationContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  coachName: { 
+    color: COLORS.text, 
+    fontWeight: "800",
+    flex: 1,
+  },
+  verificationBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  verificationText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
   coachTitle: { color: COLORS.muted, marginTop: 4 },
   coachStats: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 },
   statItem: { flexDirection: "row", alignItems: "center", gap: 4 },
