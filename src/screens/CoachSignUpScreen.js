@@ -70,6 +70,8 @@ export default function CoachSignUpScreen({ navigation }) {
           email: user.email,
           displayName: name.trim(),
           coachEmailVerified: !!user.emailVerified,
+          coachProfileComplete: false,
+          coachAccountStatus: "active",
           onboardingComplete: true, // you can change to false if you build a coach-onboarding wizard
           createdAt: serverTimestamp(),
         },

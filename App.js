@@ -256,16 +256,123 @@ export default function App() {
   useEffect(() => {
     let unsubscribeUserDoc;
     let unsubscribeCoachDoc;
+    let userRef;
+    let coachRef;
+    let latestUserData = null;
+    let latestCoachData = null;
+    let applyQueue = Promise.resolve();
+
+    const qualifiesCoachAccount = (userData = {}, coachData = {}) => {
+      if (userData.coachAccountStatus === "active") return true;
+      if (userData.role !== "coach") return false;
+      if (!coachData) return false;
+      if (coachData.approved === true || coachData.status === "approved") return true;
+      if (coachData.profileComplete === true) return true;
+      if (typeof coachData.name === "string" && coachData.name.trim().length > 0) return true;
+      return false;
+    };
+
+    const detachCoachListener = () => {
+      if (typeof unsubscribeCoachDoc === "function") {
+        unsubscribeCoachDoc();
+        unsubscribeCoachDoc = undefined;
+      }
+    };
+
+    const scheduleApply = (data, options = {}) => {
+      applyQueue = applyQueue
+        .then(() => applyData(data, options))
+        .catch((error) => console.warn("Failed to apply auth state", error));
+      return applyQueue;
+    };
+
+    function ensureCoachListener() {
+      if (!coachRef || unsubscribeCoachDoc) return;
+      unsubscribeCoachDoc = onSnapshot(coachRef, (docSnap) => {
+        const coachPayload = docSnap.data() || null;
+        latestCoachData = coachPayload;
+        setCoachProfile(coachPayload);
+        if (latestUserData) {
+          scheduleApply(latestUserData, { skipCoachFetch: true, coachDataOverride: coachPayload });
+        }
+      });
+    }
+
+    async function applyData(incomingData = {}, options = {}) {
+      if (!userRef) return;
+      let data = incomingData || {};
+      latestUserData = data;
+
+      const { skipCoachFetch = false, coachDataOverride } = options;
+
+      let coachData = coachDataOverride ?? latestCoachData ?? null;
+      let allowCoach = false;
+
+      if (data.role === "coach" || data.coachAccountStatus === "active") {
+        if (!coachRef) return;
+        if (!skipCoachFetch || !coachData) {
+          const coachSnap = await getDoc(coachRef);
+          coachData = coachSnap.exists() ? coachSnap.data() : null;
+          latestCoachData = coachData;
+        }
+
+        if (qualifiesCoachAccount(data, coachData)) {
+          allowCoach = true;
+          if (data.coachAccountStatus !== "active") {
+            await setDoc(userRef, { coachAccountStatus: "active" }, { merge: true });
+            data = { ...data, coachAccountStatus: "active" };
+          }
+          ensureCoachListener();
+        } else {
+          const updates = {};
+          if (data.role !== "user") updates.role = "user";
+          if (data.coachAccountStatus !== "inactive") updates.coachAccountStatus = "inactive";
+          if (data.coachProfileComplete) updates.coachProfileComplete = false;
+
+          if (Object.keys(updates).length) {
+            await setDoc(userRef, updates, { merge: true });
+            data = { ...data, ...updates };
+          }
+          allowCoach = false;
+          detachCoachListener();
+          latestCoachData = null;
+        }
+      } else {
+        if (data.coachAccountStatus !== "inactive") {
+          await setDoc(userRef, { coachAccountStatus: "inactive" }, { merge: true });
+          data = { ...data, coachAccountStatus: "inactive" };
+        }
+        allowCoach = false;
+        detachCoachListener();
+        latestCoachData = null;
+      }
+
+      if (allowCoach) {
+        const resolvedComplete =
+          coachData?.profileComplete !== undefined ? coachData.profileComplete : data.coachProfileComplete;
+        setCoachProfile(coachData || null);
+        setCoachProfileComplete(!!resolvedComplete);
+        setRoute("coach");
+      } else {
+        setCoachProfile(null);
+        setCoachProfileComplete(false);
+        setRoute(data.onboardingComplete ? "main" : "onboarding");
+      }
+
+      latestUserData = data;
+    }
 
     const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (user) => {
       if (unsubscribeUserDoc) {
         unsubscribeUserDoc();
         unsubscribeUserDoc = undefined;
       }
-      if (unsubscribeCoachDoc) {
-        unsubscribeCoachDoc();
-        unsubscribeCoachDoc = undefined;
-      }
+      detachCoachListener();
+      userRef = undefined;
+      coachRef = undefined;
+      latestUserData = null;
+      latestCoachData = null;
+      applyQueue = Promise.resolve();
 
       if (!user) {
         setRoute("auth");
@@ -276,20 +383,10 @@ export default function App() {
       }
 
       setBooting(true);
-      const userRef = doc(db, "users", user.uid);
-
-      const applyFromData = (data = {}) => {
-        if (data.role === "coach") {
-          setRoute("coach");
-          setCoachProfileComplete(!!data.coachProfileComplete);
-        } else {
-          setCoachProfile(null);
-          setCoachProfileComplete(false);
-          setRoute(data.onboardingComplete ? "main" : "onboarding");
-        }
-      };
-
       try {
+        userRef = doc(db, "users", user.uid);
+        coachRef = doc(db, "coaches", user.uid);
+
         let snap = await getDoc(userRef);
         if (!snap.exists()) {
           await setDoc(
@@ -300,6 +397,7 @@ export default function App() {
               onboardingComplete: false,
               coachProfileComplete: false,
               coachEmailVerified: true,
+              coachAccountStatus: "inactive",
               createdAt: serverTimestamp(),
             },
             { merge: true }
@@ -308,35 +406,42 @@ export default function App() {
         }
 
         let data = snap.data() || {};
+        const defaults = {};
+
         if (!data.role) {
-          await setDoc(userRef, { role: "user" }, { merge: true });
+          defaults.role = "user";
           data = { ...data, role: "user" };
         }
         if (!data.email && user.email) {
-          await setDoc(userRef, { email: user.email }, { merge: true });
+          defaults.email = user.email;
           data = { ...data, email: user.email };
         }
+        if (data.onboardingComplete === undefined) {
+          defaults.onboardingComplete = false;
+          data = { ...data, onboardingComplete: false };
+        }
         if (data.coachProfileComplete === undefined) {
-          await setDoc(userRef, { coachProfileComplete: false }, { merge: true });
+          defaults.coachProfileComplete = false;
           data = { ...data, coachProfileComplete: false };
         }
         if (data.coachEmailVerified === undefined) {
-          await setDoc(userRef, { coachEmailVerified: true }, { merge: true });
+          defaults.coachEmailVerified = true;
           data = { ...data, coachEmailVerified: true };
         }
-
-        applyFromData(data);
-
-        if (data.role === "coach") {
-          const coachRef = doc(db, "coaches", user.uid);
-          unsubscribeCoachDoc = onSnapshot(coachRef, (docSnap) => {
-            setCoachProfile(docSnap.data() || null);
-          });
+        if (data.coachAccountStatus === undefined) {
+          defaults.coachAccountStatus = "inactive";
+          data = { ...data, coachAccountStatus: "inactive" };
         }
+
+        if (Object.keys(defaults).length) {
+          await setDoc(userRef, defaults, { merge: true });
+        }
+
+        await scheduleApply(data);
 
         unsubscribeUserDoc = onSnapshot(userRef, (docSnap) => {
           const fresh = docSnap.data() || {};
-          applyFromData(fresh);
+          scheduleApply(fresh);
         });
       } catch (error) {
         console.warn("Failed to resolve auth route", error);
@@ -350,10 +455,11 @@ export default function App() {
 
     return () => {
       if (unsubscribeUserDoc) unsubscribeUserDoc();
-      if (unsubscribeCoachDoc) unsubscribeCoachDoc();
+      detachCoachListener();
       unsubscribeAuth();
     };
   }, []);
+
 
   if (booting || !route) return <LoadingScreen />;
 
