@@ -23,7 +23,7 @@ const SleepScreen = () => {
   const [loading, setLoading] = useState(true);
   const [editingEntry, setEditingEntry] = useState(null);
   
-  // New state for date and time pickers
+  // State for date and time pickers
   const [bedDateTime, setBedDateTime] = useState(new Date());
   const [wakeDateTime, setWakeDateTime] = useState(() => {
     const tomorrow = new Date();
@@ -204,7 +204,6 @@ const SleepScreen = () => {
             item.wakeDateTime === editingEntry.wakeDateTime)
         );
       }
-      // If adding new (not editing), we don't remove existing entries - just add new ones
       
       // Add new sleep allocation entries
       sleepAllocation.forEach(dayData => {
@@ -423,37 +422,43 @@ const SleepScreen = () => {
   };
 
   const onDateChange = (event, selectedDate, type) => {
+    // On Android, dismiss the picker immediately
     if (Platform.OS === 'android') {
       setShowBedDatePicker(false);
       setShowBedTimePicker(false);
       setShowWakeDatePicker(false);
       setShowWakeTimePicker(false);
+      
+      // On Android, only update if user didn't cancel (selectedDate exists)
+      if (!selectedDate) return;
     }
     
-    if (selectedDate) {
-      if (type === 'bedDate') {
-        const newBedDateTime = new Date(bedDateTime);
-        newBedDateTime.setFullYear(selectedDate.getFullYear());
-        newBedDateTime.setMonth(selectedDate.getMonth());
-        newBedDateTime.setDate(selectedDate.getDate());
-        setBedDateTime(newBedDateTime);
-      } else if (type === 'bedTime') {
-        const newBedDateTime = new Date(bedDateTime);
-        newBedDateTime.setHours(selectedDate.getHours());
-        newBedDateTime.setMinutes(selectedDate.getMinutes());
-        setBedDateTime(newBedDateTime);
-      } else if (type === 'wakeDate') {
-        const newWakeDateTime = new Date(wakeDateTime);
-        newWakeDateTime.setFullYear(selectedDate.getFullYear());
-        newWakeDateTime.setMonth(selectedDate.getMonth());
-        newWakeDateTime.setDate(selectedDate.getDate());
-        setWakeDateTime(newWakeDateTime);
-      } else if (type === 'wakeTime') {
-        const newWakeDateTime = new Date(wakeDateTime);
-        newWakeDateTime.setHours(selectedDate.getHours());
-        newWakeDateTime.setMinutes(selectedDate.getMinutes());
-        setWakeDateTime(newWakeDateTime);
-      }
+    // On iOS, selectedDate is always present as user scrolls
+    // Use the current value if selectedDate is undefined
+    const dateToUse = selectedDate || (type.includes('bed') ? bedDateTime : wakeDateTime);
+    
+    if (type === 'bedDate') {
+      const newBedDateTime = new Date(bedDateTime);
+      newBedDateTime.setFullYear(dateToUse.getFullYear());
+      newBedDateTime.setMonth(dateToUse.getMonth());
+      newBedDateTime.setDate(dateToUse.getDate());
+      setBedDateTime(newBedDateTime);
+    } else if (type === 'bedTime') {
+      const newBedDateTime = new Date(bedDateTime);
+      newBedDateTime.setHours(dateToUse.getHours());
+      newBedDateTime.setMinutes(dateToUse.getMinutes());
+      setBedDateTime(newBedDateTime);
+    } else if (type === 'wakeDate') {
+      const newWakeDateTime = new Date(wakeDateTime);
+      newWakeDateTime.setFullYear(dateToUse.getFullYear());
+      newWakeDateTime.setMonth(dateToUse.getMonth());
+      newWakeDateTime.setDate(dateToUse.getDate());
+      setWakeDateTime(newWakeDateTime);
+    } else if (type === 'wakeTime') {
+      const newWakeDateTime = new Date(wakeDateTime);
+      newWakeDateTime.setHours(dateToUse.getHours());
+      newWakeDateTime.setMinutes(dateToUse.getMinutes());
+      setWakeDateTime(newWakeDateTime);
     }
   };
 
@@ -474,7 +479,7 @@ const SleepScreen = () => {
       const sleepEntries = sleepData.filter(entry => entry.date === dateString);
       const totalHours = sleepEntries.reduce((sum, entry) => sum + (entry.hours || 0), 0);
       
-      // Get the most recent entry for display purposes (edit/delete functionality)
+      // Get the most recent entry for display purposes
       const latestEntry = sleepEntries.length > 0 ? 
         sleepEntries.sort((a, b) => new Date(b.bedDateTime || '1970-01-01') - new Date(a.bedDateTime || '1970-01-01'))[0] : 
         null;
@@ -482,10 +487,10 @@ const SleepScreen = () => {
       weekDays.push({
         day: dayName,
         date: dateString,
-        hours: parseFloat(totalHours.toFixed(2)), // This is the aggregated total
-        entries: sleepEntries, // Store all entries for this date
-        latestEntry: latestEntry, // Most recent entry for interactions
-        hasMultipleSessions: sleepEntries.length > 1 // True if more than one sleep session
+        hours: parseFloat(totalHours.toFixed(2)),
+        entries: sleepEntries,
+        latestEntry: latestEntry,
+        hasMultipleSessions: sleepEntries.length > 1
       });
     }
     
@@ -521,7 +526,7 @@ const SleepScreen = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#8b5cf6" />
+      <StatusBar barStyle="light-content" />
       
       <TouchableOpacity
         style={styles.addButton}
@@ -727,6 +732,7 @@ const SleepScreen = () => {
         </View>
       </ScrollView>
 
+      {/* Add Sleep Data Modal */}
       <Modal
         visible={showAddForm}
         transparent={true}
@@ -885,30 +891,154 @@ const SleepScreen = () => {
         </View>
       </Modal>
 
-      {showBedDatePicker && (
+      {/* iOS Date/Time Pickers */}
+      {Platform.OS === 'ios' && showBedDatePicker && (
+        <Modal
+          visible={showBedDatePicker}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <TouchableOpacity onPress={() => setShowBedDatePicker(false)}>
+                  <Text style={styles.pickerCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={styles.pickerTitle}>Select Bedtime Date</Text>
+                <TouchableOpacity onPress={() => setShowBedDatePicker(false)}>
+                  <Text style={styles.pickerDoneButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={bedDateTime}
+                mode="date"
+                display="spinner"
+                onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'bedDate')}
+                maximumDate={new Date()}
+                style={styles.iosDatePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === 'ios' && showBedTimePicker && (
+        <Modal
+          visible={showBedTimePicker}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <TouchableOpacity onPress={() => setShowBedTimePicker(false)}>
+                  <Text style={styles.pickerCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={styles.pickerTitle}>Select Bedtime</Text>
+                <TouchableOpacity onPress={() => setShowBedTimePicker(false)}>
+                  <Text style={styles.pickerDoneButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={bedDateTime}
+                mode="time"
+                display="spinner"
+                onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'bedTime')}
+                style={styles.iosDatePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === 'ios' && showWakeDatePicker && (
+        <Modal
+          visible={showWakeDatePicker}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <TouchableOpacity onPress={() => setShowWakeDatePicker(false)}>
+                  <Text style={styles.pickerCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={styles.pickerTitle}>Select Wake Date</Text>
+                <TouchableOpacity onPress={() => setShowWakeDatePicker(false)}>
+                  <Text style={styles.pickerDoneButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={wakeDateTime}
+                mode="date"
+                display="spinner"
+                onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'wakeDate')}
+                maximumDate={(() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  return tomorrow;
+                })()}
+                style={styles.iosDatePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === 'ios' && showWakeTimePicker && (
+        <Modal
+          visible={showWakeTimePicker}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.pickerModalOverlay}>
+            <View style={styles.pickerModalContent}>
+              <View style={styles.pickerHeader}>
+                <TouchableOpacity onPress={() => setShowWakeTimePicker(false)}>
+                  <Text style={styles.pickerCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={styles.pickerTitle}>Select Wake Time</Text>
+                <TouchableOpacity onPress={() => setShowWakeTimePicker(false)}>
+                  <Text style={styles.pickerDoneButton}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={wakeDateTime}
+                mode="time"
+                display="spinner"
+                onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'wakeTime')}
+                style={styles.iosDatePicker}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Android Date/Time Pickers */}
+      {Platform.OS === 'android' && showBedDatePicker && (
         <DateTimePicker
           value={bedDateTime}
           mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display="default"
           onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'bedDate')}
           maximumDate={new Date()}
         />
       )}
-      
-      {showBedTimePicker && (
+
+      {Platform.OS === 'android' && showBedTimePicker && (
         <DateTimePicker
           value={bedDateTime}
           mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display="default"
           onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'bedTime')}
         />
       )}
-      
-      {showWakeDatePicker && (
+
+      {Platform.OS === 'android' && showWakeDatePicker && (
         <DateTimePicker
           value={wakeDateTime}
           mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display="default"
           onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'wakeDate')}
           maximumDate={(() => {
             const tomorrow = new Date();
@@ -917,12 +1047,12 @@ const SleepScreen = () => {
           })()}
         />
       )}
-      
-      {showWakeTimePicker && (
+
+      {Platform.OS === 'android' && showWakeTimePicker && (
         <DateTimePicker
           value={wakeDateTime}
           mode="time"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display="default"
           onChange={(event, selectedDate) => onDateChange(event, selectedDate, 'wakeTime')}
         />
       )}
@@ -1334,6 +1464,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     color: 'white',
+  },
+  // iOS Picker Modal Styles
+  pickerModalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 0,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  pickerCancelButton: {
+    fontSize: 16,
+    color: '#6b7280',
+  },
+  pickerDoneButton: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#8b5cf6',
+  },
+  iosDatePicker: {
+    height: 200,
+    backgroundColor: 'white',
   },
 });
 

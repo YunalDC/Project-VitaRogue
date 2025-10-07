@@ -1,4 +1,5 @@
 // src/screens/FoodScanningScreen.js
+// Compatible with Expo SDK 54 & expo-camera v17
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
@@ -12,20 +13,18 @@ import {
   Animated,
   Easing,
   Alert,
-  Image
+  Image,
+  TextInput,
+  KeyboardAvoidingView,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { Camera } from "expo-camera"; // ✅ use Camera.Constants.* instead of CameraType/FlashMode
+import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { LinearGradient } from "expo-linear-gradient";
 import { Picker } from "@react-native-picker/picker";
-
-/**
- * Required deps:
- *   expo install expo-camera expo-image-picker expo-linear-gradient
- *   npm i @react-native-picker/picker
- */
+import { saveFoodEntry } from "../utils/foodStorage";
 
 const { width, height } = Dimensions.get("window");
 
@@ -36,104 +35,336 @@ const MUTED = "#94a3b8";
 const SUCCESS = "#10B981";
 const INFO = "#0ea5e9";
 const WARNING = "#f59e0b";
+const ERROR = "#ef4444";
+
+// Gemini API Configuration
+const GEMINI_API_KEY = "AIzaSyBYk-O6RFxd5zZfGXaTXnXoiE-r1htaNgQ";
+
+// Use the latest available models from your API key
+const GEMINI_VISION_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_TEXT_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+// Test if API key is valid
+const testAPIKey = async () => {
+  try {
+    console.log("Testing API connection...");
+    
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "Say hello in one word" }] }]
+        })
+      }
+    );
+    
+    console.log("API Test Status:", response.status);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log("API Test Response:", data.candidates?.[0]?.content?.parts?.[0]?.text);
+      console.log("✅ API connection successful - using Gemini 2.5 Flash");
+      return true;
+    } else {
+      const errorData = await response.json();
+      console.error("API Test Failed:", errorData);
+      return false;
+    }
+  } catch (error) {
+    console.error("API Key Test Failed:", error);
+    return false;
+  }
+};
 
 export default function FoodScanningScreen({ navigation }) {
-  // Camera
+  // Scan mode selection
+  const [scanOptionsVisible, setScanOptionsVisible] = useState(true);
+  const [scanMode, setScanMode] = useState(null); // 'camera' or 'manual'
+
+  // Camera permissions (expo-camera v17 way)
+  const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
-  const [hasPermission, setHasPermission] = useState(null);
   const [isReady, setIsReady] = useState(false);
   const [flashOn, setFlashOn] = useState(false);
 
   // Flow
   const [isScanning, setIsScanning] = useState(false);
   const [capturedUri, setCapturedUri] = useState("");
+  const [scanningMessage, setScanningMessage] = useState("Analyzing food...");
 
   // Bottom sheet & result
   const [sheetOpen, setSheetOpen] = useState(false);
   const [resultFood, setResultFood] = useState(null);
 
-  // Toast
-  const [toast, setToast] = useState(null); // {type: 'success'|'info'|'error', msg}
+  // Manual entry
+  const [manualEntryVisible, setManualEntryVisible] = useState(false);
+  const [manualFoodName, setManualFoodName] = useState("");
+  const [manualPortion, setManualPortion] = useState("100");
+  const [manualUnit, setManualUnit] = useState("g");
 
-  // Permissions
+  // Toast
+  const [toast, setToast] = useState(null);
+
+  // Request permissions on mount
   useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === "granted");
-      if (status !== "granted") {
-        Alert.alert(
-          "Camera Permission Required",
-          "To scan food items, we need access to your camera. Open Settings and grant permission.",
-          [{ text: "OK" }]
-        );
+    if (!permission) return;
+    if (!permission.granted) {
+      requestPermission();
+    }
+  }, [permission]);
+
+  // Test API key on mount
+  useEffect(() => {
+    testAPIKey().then(isValid => {
+      if (!isValid) {
+        console.error("⚠️ API Key validation failed!");
+        setToast({ type: "error", msg: "API connection issue detected" });
+      } else {
+        console.log("✅ API Key is valid");
       }
-    })();
+    });
   }, []);
 
-  // Mock food DB
-  const mockFoodDatabase = useMemo(
-    () => [
-      {
-        id: 1,
-        name: "Grilled Chicken Breast",
-        confidence: 92,
-        nutrition: { calories: 165.0, fat: 3.6, carbs: 0.0, protein: 31.0 },
-        servingSize: "100g",
-      },
-      {
-        id: 2,
-        name: "Caesar Salad",
-        confidence: 88,
-        nutrition: { calories: 190.0, fat: 16.0, carbs: 8.0, protein: 6.0 },
-        servingSize: "1 cup",
-      },
-      {
-        id: 3,
-        name: "Banana",
-        confidence: 95,
-        nutrition: { calories: 105.0, fat: 0.4, carbs: 27.0, protein: 1.3 },
-        servingSize: "1 medium",
-      },
-      {
-        id: 4,
-        name: "Avocado Toast",
-        confidence: 85,
-        nutrition: { calories: 234.0, fat: 15.0, carbs: 20.0, protein: 6.0 },
-        servingSize: "1 slice",
-      },
-      {
-        id: 5,
-        name: "Greek Yogurt",
-        confidence: 90,
-        nutrition: { calories: 100.0, fat: 0.4, carbs: 6.0, protein: 17.0 },
-        servingSize: "150g",
-      },
-    ],
-    []
-  );
+  // API Functions
+  const analyzeImageWithGemini = async (imageUri) => {
+    try {
+      console.log("Starting image analysis...");
+      
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+      const base64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64data = reader.result.split(',')[1];
+          resolve(base64data);
+        };
+        reader.readAsDataURL(blob);
+      });
+
+      console.log("Image converted to base64");
+
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: `Analyze this food image and provide detailed nutritional information. 
+                
+                Response format (JSON only, no markdown):
+                {
+                  "recognized": true/false,
+                  "foodName": "name of the food",
+                  "confidence": 0-100 (percentage),
+                  "servingSize": "estimated portion size",
+                  "servingSizeGrams": number,
+                  "nutrition": {
+                    "calories": number,
+                    "protein": number,
+                    "fat": number,
+                    "carbs": number,
+                    "fiber": number,
+                    "sugar": number,
+                    "sodium": number
+                  },
+                  "allergens": ["list of common allergens"],
+                  "healthBenefits": ["list of 3 health benefits"]
+                }
+                
+                If you cannot clearly identify the food or if it's not food, set recognized to false and confidence to 0.`
+              },
+              {
+                inline_data: {
+                  mime_type: "image/jpeg",
+                  data: base64
+                }
+              }
+            ]
+          }
+        ]
+      };
+
+      console.log("Sending request to Gemini Vision API...");
+
+      const apiResponse = await fetch(GEMINI_VISION_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log("API Response status:", apiResponse.status);
+
+      const data = await apiResponse.json();
+      console.log("API Response:", JSON.stringify(data, null, 2));
+      
+      if (!data.candidates || !data.candidates[0]) {
+        console.error("No candidates in response:", data);
+        throw new Error("No response from Gemini API");
+      }
+
+      const textResponse = data.candidates[0].content.parts[0].text;
+      console.log("Text response:", textResponse);
+      
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error("Could not find JSON in response:", textResponse);
+        throw new Error("Could not parse API response");
+      }
+      
+      const foodData = JSON.parse(jsonMatch[0]);
+      console.log("Parsed food data:", foodData);
+      
+      return foodData;
+    } catch (error) {
+      console.error("Gemini API Error:", error);
+      console.error("Error details:", error.message);
+      throw error;
+    }
+  };
+
+  const getNutritionByName = async (foodName, portion, unit) => {
+    try {
+      console.log("Looking up nutrition for:", foodName, portion, unit);
+      
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: `Provide detailed nutritional information for "${foodName}" with portion size of ${portion}${unit}.
+                
+                Response format (JSON only, no markdown):
+                {
+                  "recognized": true/false,
+                  "foodName": "standardized name",
+                  "confidence": 0-100,
+                  "servingSize": "${portion}${unit}",
+                  "servingSizeGrams": number (convert to grams),
+                  "nutrition": {
+                    "calories": number,
+                    "protein": number,
+                    "fat": number,
+                    "carbs": number,
+                    "fiber": number,
+                    "sugar": number,
+                    "sodium": number
+                  },
+                  "allergens": ["list"],
+                  "healthBenefits": ["list of 3 benefits"]
+                }
+                
+                If this is not a real food item, set recognized to false.`
+              }
+            ]
+          }
+        ]
+      };
+
+      console.log("Sending manual lookup request...");
+
+      const response = await fetch(GEMINI_TEXT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      console.log("Manual lookup response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API Error Response:", errorText);
+        throw new Error(`API returned ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Manual lookup response:", JSON.stringify(data, null, 2));
+      
+      if (!data.candidates || !data.candidates[0]) {
+        console.error("No candidates in manual lookup:", data);
+        throw new Error("No response from API");
+      }
+
+      const textResponse = data.candidates[0].content.parts[0].text;
+      console.log("Manual lookup text:", textResponse);
+      
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      
+      if (!jsonMatch) {
+        console.error("Could not find JSON in manual lookup response");
+        throw new Error("Could not parse API response");
+      }
+      
+      const parsedData = JSON.parse(jsonMatch[0]);
+      console.log("Parsed manual data:", parsedData);
+      
+      return parsedData;
+    } catch (error) {
+      console.error("Nutrition API Error:", error);
+      console.error("Error type:", error.constructor.name);
+      console.error("Error message:", error.message);
+      throw error;
+    }
+  };
 
   // Actions
   const toggleFlash = useCallback(() => setFlashOn((v) => !v), []);
+
+  const handleScanModeSelect = (mode) => {
+    setScanMode(mode);
+    setScanOptionsVisible(false);
+    
+    if (mode === "manual") {
+      setManualEntryVisible(true);
+    }
+  };
 
   const capturePhoto = useCallback(async () => {
     try {
       if (!cameraRef.current) return;
       setIsScanning(true);
+      setScanningMessage("Capturing image...");
+      
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.85,
-        skipProcessing: true,
+        quality: 0.8,
       });
+      
       setCapturedUri(photo?.uri || "");
-      await wait(1200);
-      const food = pickRandom(mockFoodDatabase);
-      setResultFood(food);
+      setScanningMessage("Analyzing food with AI...");
+      
+      const foodData = await analyzeImageWithGemini(photo.uri);
+      
+      if (!foodData.recognized || foodData.confidence < 30) {
+        setIsScanning(false);
+        Alert.alert(
+          "Food Not Recognized",
+          "We couldn't identify the food in this image. Would you like to enter it manually?",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Manual Entry",
+              onPress: () => {
+                setManualEntryVisible(true);
+              },
+            },
+          ]
+        );
+        return;
+      }
+      
+      setResultFood(foodData);
       setSheetOpen(true);
-    } catch (e) {
-      setToast({ type: "error", msg: "Failed to capture photo. Please try again." });
+    } catch (error) {
+      setToast({ type: "error", msg: "Failed to analyze food. Please try again." });
+      console.error(error);
     } finally {
       setIsScanning(false);
     }
-  }, [mockFoodDatabase]);
+  }, []);
 
   const pickFromGallery = useCallback(async () => {
     try {
@@ -142,47 +373,112 @@ export default function FoodScanningScreen({ navigation }) {
         setToast({ type: "info", msg: "Allow photo library access to pick an image." });
         return;
       }
+      
       setIsScanning(true);
+      setScanningMessage("Loading image...");
+      
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.8,
       });
+      
       if (!res.canceled && res.assets?.length) {
         setCapturedUri(res.assets[0].uri);
-        await wait(1200);
-        const food = pickRandom(mockFoodDatabase);
-        setResultFood(food);
+        setScanningMessage("Analyzing food with AI...");
+        
+        const foodData = await analyzeImageWithGemini(res.assets[0].uri);
+        
+        if (!foodData.recognized || foodData.confidence < 30) {
+          setIsScanning(false);
+          Alert.alert(
+            "Food Not Recognized",
+            "We couldn't identify the food in this image. Would you like to enter it manually?",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Manual Entry",
+                onPress: () => setManualEntryVisible(true),
+              },
+            ]
+          );
+          return;
+        }
+        
+        setResultFood(foodData);
         setSheetOpen(true);
       }
-    } catch (e) {
-      setToast({ type: "error", msg: "Failed to pick image from gallery." });
+    } catch (error) {
+      setToast({ type: "error", msg: "Failed to analyze image." });
+      console.error(error);
     } finally {
       setIsScanning(false);
     }
-  }, [mockFoodDatabase]);
-
-  const onAddToMeal = useCallback(() => {
-    setSheetOpen(false);
-    setToast({ type: "success", msg: "Food added to meal successfully!" });
   }, []);
 
-  const onManualEntry = useCallback(() => {
+  const handleManualSubmit = async () => {
+    if (!manualFoodName.trim()) {
+      setToast({ type: "error", msg: "Please enter a food name" });
+      return;
+    }
+    
+    if (!manualPortion || isNaN(Number(manualPortion))) {
+      setToast({ type: "error", msg: "Please enter a valid portion size" });
+      return;
+    }
+    
+    setManualEntryVisible(false);
+    setIsScanning(true);
+    setScanningMessage("Looking up nutrition data...");
+    
+    try {
+      console.log("Manual submit:", manualFoodName, manualPortion, manualUnit);
+      
+      const foodData = await getNutritionByName(
+        manualFoodName,
+        manualPortion,
+        manualUnit
+      );
+      
+      console.log("Got food data:", foodData);
+      
+      if (!foodData || !foodData.recognized) {
+        setIsScanning(false);
+        Alert.alert(
+          "Food Not Found",
+          "Could not find nutritional information for this food. Please check the spelling or try a different name.",
+          [
+            { text: "OK", onPress: () => {
+              setManualEntryVisible(true);
+            }}
+          ]
+        );
+        return;
+      }
+      
+      setResultFood(foodData);
+      setSheetOpen(true);
+      setManualFoodName("");
+      setManualPortion("100");
+    } catch (error) {
+      console.error("Manual submit error:", error);
+      setToast({ type: "error", msg: `Failed: ${error.message}` });
+      setManualEntryVisible(true);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const onAddToMeal = useCallback(() => {
+    // This will be called from NutritionResultsSheet
+    // Data is saved there with the meal type and serving size
     setSheetOpen(false);
-    Alert.alert(
-      "Manual Food Entry",
-      "This feature allows you to manually search and add foods from our comprehensive database.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Search Foods",
-          onPress: () => setToast({ type: "info", msg: "Manual entry feature coming soon!" }),
-        },
-      ]
-    );
+    setScanMode(null);
+    setToast({ type: "success", msg: "Food added to meal successfully!" });
+    setScanOptionsVisible(true);
   }, []);
 
   // Renders
-  if (hasPermission === null) {
+  if (!permission) {
     return (
       <View style={[styles.fill, styles.center, { backgroundColor: BG }]}>
         <ActivityIndicator color="#38bdf8" />
@@ -191,13 +487,22 @@ export default function FoodScanningScreen({ navigation }) {
     );
   }
 
-  if (hasPermission === false) {
+  if (!permission.granted) {
     return (
       <View style={[styles.fill, styles.center, { backgroundColor: BG }]}>
-        <Text style={{ color: TEXT, paddingHorizontal: 24, textAlign: "center" }}>
-          Camera permission not granted. You can still add foods manually from your diary.
+        <Text style={{ color: TEXT, paddingHorizontal: 24, textAlign: "center", marginBottom: 16 }}>
+          Camera permission not granted. You can still add foods manually.
         </Text>
-        <TouchableOpacity style={[styles.btn, { marginTop: 16 }]} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={[styles.btn, { marginBottom: 12 }]}
+          onPress={requestPermission}
+        >
+          <Text style={styles.btnText}>Grant Permission</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.btn}
+          onPress={() => navigation.goBack()}
+        >
           <Text style={styles.btnText}>Go back</Text>
         </TouchableOpacity>
       </View>
@@ -207,50 +512,78 @@ export default function FoodScanningScreen({ navigation }) {
   return (
     <View style={[styles.fill, { backgroundColor: BG }]}>
       {/* Camera Preview */}
-      <View style={StyleSheet.absoluteFill}>
-        <Camera
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          // ✅ Fix: use Camera.Constants.Type
-          type={Camera.Constants?.Type?.back}
-          onCameraReady={() => setIsReady(true)}
-          ratio={Platform.OS === "ios" ? "16:9" : undefined}
-          // ✅ Fix: use Camera.Constants.FlashMode
-          flashMode={
-            flashOn
-              ? Camera.Constants?.FlashMode?.torch
-              : Camera.Constants?.FlashMode?.off
-          }
-        />
-      </View>
-
-      {/* Overlay */}
-      <CameraOverlayWidget
-        onFlashToggle={toggleFlash}
-        onBackPressed={() => navigation.goBack()}
-        isFlashOn={flashOn}
-        showFlash={Platform.OS !== "web"}
-      />
-
-      {/* Bottom scan button */}
-      <ScanButtonWidget onPress={capturePhoto} isScanning={isScanning} />
-
-      {/* Gallery button */}
-      {isReady && !isScanning && (
-        <View style={{ position: "absolute", right: 16, bottom: 140 }}>
-          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery}>
-            <Ionicons name="images-outline" size={22} color="#fff" />
-          </TouchableOpacity>
+      {scanMode === "camera" && (
+        <View style={StyleSheet.absoluteFill}>
+          <CameraView
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            enableTorch={flashOn}
+            onCameraReady={() => setIsReady(true)}
+          />
         </View>
       )}
 
+      {/* Overlay */}
+      {scanMode === "camera" && (
+        <CameraOverlayWidget
+          onFlashToggle={toggleFlash}
+          onBackPressed={() => {
+            setScanMode(null);
+            setScanOptionsVisible(true);
+          }}
+          isFlashOn={flashOn}
+          showFlash={Platform.OS !== "web"}
+        />
+      )}
+
+      {/* Scan button for camera mode */}
+      {scanMode === "camera" && isReady && (
+        <>
+          <ScanButtonWidget onPress={capturePhoto} isScanning={isScanning} />
+          <View style={{ position: "absolute", right: 16, bottom: 140 }}>
+            <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery}>
+              <Ionicons name="images-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
+      {/* Scan Options Modal */}
+      <ScanOptionsModal
+        visible={scanOptionsVisible}
+        onClose={() => {
+          setScanOptionsVisible(false);
+          navigation.goBack();
+        }}
+        onSelectMode={handleScanModeSelect}
+      />
+
+      {/* Manual Entry Modal */}
+      <ManualEntryModal
+        visible={manualEntryVisible}
+        onClose={() => {
+          setManualEntryVisible(false);
+          setScanOptionsVisible(true);
+        }}
+        foodName={manualFoodName}
+        setFoodName={setManualFoodName}
+        portion={manualPortion}
+        setPortion={setManualPortion}
+        unit={manualUnit}
+        setUnit={setManualUnit}
+        onSubmit={handleManualSubmit}
+      />
+
       {/* Scanning overlay */}
       <Modal transparent visible={isScanning} animationType="fade">
-        <View style={[styles.fill, styles.center, { backgroundColor: "rgba(0,0,0,0.7)" }]}>
+        <View style={[styles.fill, styles.center, { backgroundColor: "rgba(0,0,0,0.85)" }]}>
           <ActivityIndicator size="large" color={INFO} />
-          <Text style={{ color: "#fff", marginTop: 10, fontWeight: "600" }}>Analyzing food…</Text>
-          <Text style={{ color: "#cbd5e1", marginTop: 4 }}>
-            Please wait while we identify your food
+          <Text style={{ color: "#fff", marginTop: 16, fontWeight: "700", fontSize: 16 }}>
+            {scanningMessage}
+          </Text>
+          <Text style={{ color: "#cbd5e1", marginTop: 6, textAlign: "center", paddingHorizontal: 32 }}>
+            This may take a few moments
           </Text>
         </View>
       </Modal>
@@ -262,7 +595,6 @@ export default function FoodScanningScreen({ navigation }) {
             foodData={resultFood}
             imageUri={capturedUri}
             onAddToMeal={onAddToMeal}
-            onManualEntry={onManualEntry}
             onClose={() => setSheetOpen(false)}
           />
         )}
@@ -276,11 +608,189 @@ export default function FoodScanningScreen({ navigation }) {
 
 /* ============================== Widgets ============================== */
 
-// CameraOverlayWidget
-function CameraOverlayWidget({ onFlashToggle, onBackPressed, isFlashOn = false, showFlash = true }) {
+function ScanOptionsModal({ visible, onClose, onSelectMode }) {
+  const slideAnim = useRef(new Animated.Value(height)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        friction: 9,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [visible]);
+
+  const options = [
+    {
+      id: "camera",
+      icon: "camera",
+      title: "Scan Food",
+      subtitle: "Take a photo of your food",
+      color: SUCCESS,
+    },
+    {
+      id: "manual",
+      icon: "create",
+      title: "Manual Entry",
+      subtitle: "Type food name and portion",
+      color: WARNING,
+    },
+  ];
+
+  return (
+    <Modal transparent visible={visible} animationType="fade">
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <Animated.View
+          style={[
+            styles.scanOptionsCard,
+            { transform: [{ translateY: slideAnim }] },
+          ]}
+        >
+          <View style={{ alignItems: "center", paddingTop: 12, paddingBottom: 8 }}>
+            <View style={styles.handleBar} />
+          </View>
+
+          <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+            <Text style={styles.modalTitle}>How would you like to add food?</Text>
+            <Text style={styles.modalSubtitle}>
+              Choose your preferred method to track nutrition
+            </Text>
+          </View>
+
+          <View style={{ paddingHorizontal: 16, paddingBottom: 20 }}>
+            {options.map((option) => (
+              <TouchableOpacity
+                key={option.id}
+                style={styles.scanOption}
+                onPress={() => onSelectMode(option.id)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.scanOptionIcon, { backgroundColor: option.color + "20" }]}>
+                  <Ionicons name={option.icon} size={28} color={option.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.scanOptionTitle}>{option.title}</Text>
+                  <Text style={styles.scanOptionSubtitle}>{option.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={MUTED} />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+function ManualEntryModal({
+  visible,
+  onClose,
+  foodName,
+  setFoodName,
+  portion,
+  setPortion,
+  unit,
+  setUnit,
+  onSubmit,
+}) {
+  return (
+    <Modal transparent visible={visible} animationType="slide">
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.modalOverlay}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={styles.manualEntryCard}>
+          <View style={{ alignItems: "center", paddingTop: 12, paddingBottom: 8 }}>
+            <View style={styles.handleBar} />
+          </View>
+
+          <View style={{ padding: 20 }}>
+            <Text style={styles.modalTitle}>Manual Food Entry</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter food details to get nutrition information
+            </Text>
+
+            <View style={{ marginTop: 20 }}>
+              <Text style={styles.inputLabel}>Food Name</Text>
+              <TextInput
+                style={styles.textInput}
+                value={foodName}
+                onChangeText={setFoodName}
+                placeholder="e.g., Grilled Chicken Breast"
+                placeholderTextColor={MUTED}
+              />
+            </View>
+
+            <View style={{ marginTop: 16, flexDirection: "row", gap: 12 }}>
+              <View style={{ flex: 2 }}>
+                <Text style={styles.inputLabel}>Portion Size</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={portion}
+                  onChangeText={setPortion}
+                  placeholder="100"
+                  keyboardType="numeric"
+                  placeholderTextColor={MUTED}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.inputLabel}>Unit</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={unit}
+                    onValueChange={setUnit}
+                    style={styles.picker}
+                    dropdownIconColor={TEXT}
+                  >
+                    <Picker.Item label="g" value="g" />
+                    <Picker.Item label="oz" value="oz" />
+                    <Picker.Item label="cup" value="cup" />
+                    <Picker.Item label="tbsp" value="tbsp" />
+                    <Picker.Item label="piece" value="piece" />
+                  </Picker>
+                </View>
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.submitButton} onPress={onSubmit}>
+              <Ionicons name="search" size={20} color="#fff" />
+              <Text style={styles.submitButtonText}>Get Nutrition Info</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelButtonAlt} onPress={onClose}>
+              <Text style={styles.cancelButtonTextAlt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function CameraOverlayWidget({ onFlashToggle, onBackPressed, isFlashOn, showFlash }) {
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
-      {/* Top gradient bar */}
       <LinearGradient
         colors={["rgba(17,24,39,0.8)", "transparent"]}
         start={{ x: 0.5, y: 0 }}
@@ -297,58 +807,43 @@ function CameraOverlayWidget({ onFlashToggle, onBackPressed, isFlashOn = false, 
               alignItems: "center",
             }}
           >
-            {/* Back */}
             <TouchableOpacity onPress={onBackPressed} style={styles.roundBtn}>
               <Ionicons name="arrow-back" size={20} color="#fff" />
             </TouchableOpacity>
-            {/* Flash toggle */}
             {showFlash && (
               <TouchableOpacity onPress={onFlashToggle} style={styles.roundBtn}>
-                <Ionicons name={isFlashOn ? "flash" : "flash-off"} size={20} color={isFlashOn ? SUCCESS : "#fff"} />
+                <Ionicons
+                  name={isFlashOn ? "flash" : "flash-off"}
+                  size={20}
+                  color={isFlashOn ? SUCCESS : "#fff"}
+                />
               </TouchableOpacity>
             )}
           </View>
         </SafeAreaView>
       </LinearGradient>
 
-      {/* Reticle square with corner accents */}
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }} pointerEvents="none">
         <View style={styles.reticleBox}>
           <View style={[styles.corner, { top: -2, left: -2, borderTopColor: SUCCESS, borderLeftColor: SUCCESS }]} />
           <View style={[styles.corner, { top: -2, right: -2, borderTopColor: SUCCESS, borderRightColor: SUCCESS }]} />
           <View style={[styles.corner, { bottom: -2, left: -2, borderBottomColor: SUCCESS, borderLeftColor: SUCCESS }]} />
           <View style={[styles.corner, { bottom: -2, right: -2, borderBottomColor: SUCCESS, borderRightColor: SUCCESS }]} />
-          <View
-            style={{
-              position: "absolute",
-              width: 4,
-              height: 4,
-              backgroundColor: SUCCESS,
-              borderRadius: 2,
-              alignSelf: "center",
-              top: "50%",
-              left: "50%",
-              marginLeft: -2,
-              marginTop: -2,
-            }}
-          />
         </View>
       </View>
 
-      {/* Instruction pill */}
       <View
         style={{ position: "absolute", top: height * 0.7, left: 0, right: 0, alignItems: "center" }}
         pointerEvents="none"
       >
-        <View style={{ backgroundColor: "rgba(17,24,39,0.8)", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 24 }}>
-          <Text style={{ color: TEXT, fontWeight: "600" }}>Position food item within the frame</Text>
+        <View style={styles.instructionPill}>
+          <Text style={{ color: TEXT, fontWeight: "600" }}>Position food within the frame</Text>
         </View>
       </View>
     </View>
   );
 }
 
-// ScanButtonWidget
 function ScanButtonWidget({ onPress, isScanning }) {
   const scale = useRef(new Animated.Value(1)).current;
   const pulse = useRef(new Animated.Value(1)).current;
@@ -357,16 +852,23 @@ function ScanButtonWidget({ onPress, isScanning }) {
     if (isScanning) {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulse, { toValue: 1.2, duration: 750, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
-          Animated.timing(pulse, { toValue: 1.0, duration: 750, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(pulse, {
+            toValue: 1.2,
+            duration: 750,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(pulse, {
+            toValue: 1.0,
+            duration: 750,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
         ])
       ).start();
     } else {
       pulse.stopAnimation();
       pulse.setValue(1);
-      Animated.timing(scale, { toValue: 0.95, duration: 150, useNativeDriver: true }).start(() => {
-        Animated.timing(scale, { toValue: 1.0, duration: 200, useNativeDriver: true }).start();
-      });
     }
   }, [isScanning]);
 
@@ -385,7 +887,7 @@ function ScanButtonWidget({ onPress, isScanning }) {
             <TouchableOpacity
               activeOpacity={0.9}
               disabled={isScanning}
-              onPress={() => onPress?.()}
+              onPress={onPress}
               style={{
                 width: BTN_SIZE,
                 height: BTN_SIZE,
@@ -409,11 +911,7 @@ function ScanButtonWidget({ onPress, isScanning }) {
 
           <View style={{ height: 12 }} />
           <Text style={{ color: TEXT, fontWeight: "700" }}>
-            {isScanning ? "Analyzing food…" : "Tap to Scan"}
-          </Text>
-          <View style={{ height: 4 }} />
-          <Text style={{ color: MUTED, textAlign: "center" }}>
-            {isScanning ? "Please wait while we identify your food" : "Position food in frame and tap to capture"}
+            {isScanning ? "Analyzing..." : "Tap to Scan"}
           </Text>
         </View>
       </LinearGradient>
@@ -421,133 +919,186 @@ function ScanButtonWidget({ onPress, isScanning }) {
   );
 }
 
-// NutritionResultsSheet (content only; hosted in BottomSheet)
-function NutritionResultsSheet({ foodData, imageUri, onAddToMeal, onManualEntry, onClose }) {
+function NutritionResultsSheet({ foodData, imageUri, onAddToMeal, onClose }) {
   const [servingSize, setServingSize] = useState(1.0);
   const [selectedMealType, setSelectedMealType] = useState("Breakfast");
-  const mealTypes = ["Breakfast", "Lunch", "Dinner", "Snack"];
+  const [isSaving, setIsSaving] = useState(false);
 
-  const base = foodData?.nutrition || { calories: 0, fat: 0, carbs: 0, protein: 0 };
-
+  const base = foodData?.nutrition || {};
   const adj = useMemo(
     () => ({
       calories: Math.round((base.calories || 0) * servingSize),
       fat: ((base.fat || 0) * servingSize).toFixed(1),
       carbs: ((base.carbs || 0) * servingSize).toFixed(1),
       protein: ((base.protein || 0) * servingSize).toFixed(1),
+      fiber: ((base.fiber || 0) * servingSize).toFixed(1),
+      sugar: ((base.sugar || 0) * servingSize).toFixed(1),
+      sodium: Math.round((base.sodium || 0) * servingSize),
     }),
     [base, servingSize]
   );
 
+  const handleAddToMeal = async () => {
+    setIsSaving(true);
+    
+    try {
+      // Prepare food data with adjusted nutrition
+      const dataToSave = {
+        foodName: foodData.foodName,
+        confidence: foodData.confidence,
+        servingSize: servingSize,
+        originalServingSize: foodData.servingSize,
+        nutrition: {
+          calories: parseFloat(adj.calories),
+          protein: parseFloat(adj.protein),
+          fat: parseFloat(adj.fat),
+          carbs: parseFloat(adj.carbs),
+          fiber: parseFloat(adj.fiber),
+          sugar: parseFloat(adj.sugar),
+          sodium: parseFloat(adj.sodium),
+        },
+        imageUri: imageUri || null,
+        allergens: foodData.allergens || [],
+        healthBenefits: foodData.healthBenefits || [],
+      };
+      
+      console.log('Saving food entry:', dataToSave, selectedMealType);
+      
+      const success = await saveFoodEntry(dataToSave, selectedMealType);
+      
+      if (success) {
+        console.log('Food saved successfully!');
+        onAddToMeal();
+      } else {
+        Alert.alert('Error', 'Failed to save food entry. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving food:', error);
+      Alert.alert('Error', 'Failed to save food entry. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
-    <View style={{ paddingBottom: 18 }}>
-      {/* Handle bar + header */}
-      <View style={{ alignItems: "center", paddingTop: 8 }}>
-        <View style={{ width: 48, height: 4, borderRadius: 2, backgroundColor: "#e5e7eb" }} />
-      </View>
-
-      <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Text style={{ fontSize: 20, fontWeight: "800", color: "#111827" }}>Food Analysis</Text>
-        <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
-          <Ionicons name="close" size={20} color="#64748b" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Identification card */}
-      <View
-        style={{
-          marginHorizontal: 16,
-          backgroundColor: "#ecfdf5",
-          borderColor: "#a7f3d0",
-          borderWidth: 1,
-          borderRadius: 12,
-          padding: 12,
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Ionicons name="checkmark-circle" size={22} color={SUCCESS} />
-          <Text style={{ fontSize: 16, fontWeight: "700", color: "#065f46" }}>{foodData?.name}</Text>
+    <ScrollView style={{ maxHeight: height * 0.8 }}>
+      <View style={{ paddingBottom: 18 }}>
+        <View style={{ alignItems: "center", paddingTop: 8 }}>
+          <View style={styles.handleBar} />
         </View>
-        <Text style={{ color: "#065f46", marginTop: 6 }}>
-          Confidence: <Text style={{ fontWeight: "700" }}>{foodData?.confidence}%</Text>
-        </Text>
-      </View>
 
-      {/* Optional captured image + stats */}
-      <View style={{ flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 14 }}>
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={{ width: 110, height: 110, borderRadius: 12 }} />
-        ) : (
-          <View style={{ width: 110, height: 110, borderRadius: 12, backgroundColor: "#e5e7eb" }} />
-        )}
-        <View style={{ flex: 1, justifyContent: "space-between" }}>
-          <MacroStat label="Calories" value={`${adj.calories}`} suffix="kcal" tint={INFO} />
-          <View style={{ height: 8 }} />
+        <View style={{ padding: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ fontSize: 20, fontWeight: "800", color: "#111827" }}>Food Analysis</Text>
+          <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+            <Ionicons name="close" size={20} color="#64748b" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={[styles.identificationCard, {
+          backgroundColor: foodData.confidence >= 70 ? "#ecfdf5" : foodData.confidence >= 50 ? "#fef3c7" : "#fee2e2",
+          borderColor: foodData.confidence >= 70 ? "#a7f3d0" : foodData.confidence >= 50 ? "#fcd34d" : "#fecaca",
+        }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons 
+              name={foodData.confidence >= 70 ? "checkmark-circle" : foodData.confidence >= 50 ? "alert-circle" : "warning"} 
+              size={22} 
+              color={foodData.confidence >= 70 ? SUCCESS : foodData.confidence >= 50 ? WARNING : ERROR} 
+            />
+            <Text style={{ fontSize: 16, fontWeight: "700", color: "#065f46" }}>{foodData?.foodName}</Text>
+          </View>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+            <Text style={{ color: "#065f46" }}>
+              Confidence: <Text style={{ fontWeight: "700" }}>{foodData?.confidence}%</Text>
+            </Text>
+            <Text style={{ color: "#065f46", fontSize: 12 }}>
+              Serving: {foodData?.servingSize}
+            </Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 14 }}>
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={{ width: 110, height: 110, borderRadius: 12 }} />
+          ) : (
+            <View style={{ width: 110, height: 110, borderRadius: 12, backgroundColor: "#e5e7eb", alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="restaurant" size={40} color="#9ca3af" />
+            </View>
+          )}
+          <View style={{ flex: 1, justifyContent: "space-between" }}>
+            <MacroStat label="Calories" value={`${adj.calories}`} suffix="kcal" tint={INFO} />
+            <View style={{ height: 8 }} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <MacroStat label="Protein" value={`${adj.protein}`} suffix="g" tint={SUCCESS} flex />
+              <MacroStat label="Carbs" value={`${adj.carbs}`} suffix="g" tint={INFO} flex />
+              <MacroStat label="Fat" value={`${adj.fat}`} suffix="g" tint={WARNING} flex />
+            </View>
+          </View>
+        </View>
+
+        <View style={{ marginHorizontal: 16, marginTop: 14 }}>
+          <Text style={{ fontSize: 14, fontWeight: "700", color: "#111827", marginBottom: 8 }}>
+            Additional Nutrients
+          </Text>
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <MacroStat label="Fat" value={`${adj.fat}`} suffix="g" tint={WARNING} flex />
-            <MacroStat label="Carbs" value={`${adj.carbs}`} suffix="g" tint={INFO} flex />
-            <MacroStat label="Protein" value={`${adj.protein}`} suffix="g" tint={SUCCESS} flex />
+            <MacroStat label="Fiber" value={`${adj.fiber}`} suffix="g" tint="#8b5cf6" flex />
+            <MacroStat label="Sugar" value={`${adj.sugar}`} suffix="g" tint="#ec4899" flex />
+            <MacroStat label="Sodium" value={`${adj.sodium}`} suffix="mg" tint="#6366f1" flex />
           </View>
         </View>
-      </View>
 
-      {/* Serving size */}
-      <View style={{ marginTop: 16, marginHorizontal: 16 }}>
-        <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>Serving Size</Text>
-        <View
-          style={{
-            marginTop: 8,
-            backgroundColor: "#fff",
-            borderColor: "#e5e7eb",
-            borderWidth: 1,
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
+        <View style={{ marginTop: 16, marginHorizontal: 16 }}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>Serving Size</Text>
+          <View style={styles.servingSizeControl}>
+            <Text style={{ color: "#111827" }}>{servingSize.toFixed(1)} serving(s)</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => setServingSize((s) => Math.max(0.5, +(s - 0.5).toFixed(1)))}
+                style={[styles.roundBtn, { backgroundColor: "#f1f5f9", borderColor: "#e2e8f0" }]}
+              >
+                <Ionicons name="remove" size={18} color="#111827" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setServingSize((s) => Math.min(5.0, +(s + 0.5).toFixed(1)))}
+                style={[styles.roundBtn, { backgroundColor: SUCCESS }]}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <View style={{ marginTop: 16, marginHorizontal: 16 }}>
+          <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>Add to Meal</Text>
+          <View style={styles.pickerContainerLight}>
+            <Picker
+              selectedValue={selectedMealType}
+              onValueChange={setSelectedMealType}
+              dropdownIconColor="#64748b"
+              style={{ color: "#111827" }}
+            >
+              {["Breakfast", "Lunch", "Dinner", "Snack"].map((t) => (
+                <Picker.Item key={t} label={t} value={t} />
+              ))}
+            </Picker>
+          </View>
+        </View>
+
+        <TouchableOpacity 
+          onPress={handleAddToMeal} 
+          style={styles.addToMealBtn}
+          disabled={isSaving}
         >
-          <Text style={{ color: "#111827" }}>{servingSize.toFixed(1)} serving(s)</Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-            <TouchableOpacity
-              onPress={() => setServingSize((s) => Math.max(0.5, +(s - 0.5).toFixed(1)))}
-              style={[styles.roundBtn, { backgroundColor: "#f1f5f9", borderColor: "#e2e8f0" }]}
-            >
-              <Ionicons name="remove" size={18} color="#111827" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setServingSize((s) => Math.min(5.0, +(s + 0.5).toFixed(1)))}
-              style={[styles.roundBtn, { backgroundColor: SUCCESS }]}
-            >
-              <Ionicons name="add" size={18} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-
-      {/* Add to meal */}
-      <View style={{ marginTop: 16, marginHorizontal: 16 }}>
-        <Text style={{ fontSize: 16, fontWeight: "700", color: "#111827" }}>Add to Meal</Text>
-        <View style={{ marginTop: 8, backgroundColor: "#fff", borderColor: "#e5e7eb", borderWidth: 1, borderRadius: 12, paddingHorizontal: 8 }}>
-          <Picker selectedValue={selectedMealType} onValueChange={(v) => setSelectedMealType(v)} dropdownIconColor="#64748b" style={{ color: "#111827" }}>
-            {["Breakfast", "Lunch", "Dinner", "Snack"].map((t) => (
-              <Picker.Item key={t} label={t} value={t} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-
-      {/* Actions */}
-      <View style={{ flexDirection: "row", gap: 12, marginHorizontal: 16, marginTop: 16 }}>
-        <TouchableOpacity onPress={onManualEntry} style={[styles.secondaryBtn, { flex: 1 }]}>
-          <Text style={styles.secondaryBtnText}>Manual Entry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={onAddToMeal} style={[styles.primaryBtn, { flex: 2 }]}>
-          <Text style={styles.primaryBtnText}>Add to {selectedMealType}</Text>
+          {isSaving ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <>
+              <Ionicons name="checkmark-circle" size={22} color="#fff" />
+              <Text style={styles.addToMealBtnText}>Add to {selectedMealType}</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -615,13 +1166,16 @@ function Toast({ data, onHide }) {
     if (!data) return;
     Animated.timing(anim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     const id = setTimeout(() => {
-      Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }).start(({ finished }) => finished && onHide());
-    }, 2200);
+      Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }).start(
+        ({ finished }) => finished && onHide()
+      );
+    }, 2800);
     return () => clearTimeout(id);
   }, [data]);
 
   if (!data) return null;
-  const bg = data.type === "success" ? "#059669" : data.type === "error" ? "#dc2626" : "#111827";
+  const bg =
+    data.type === "success" ? "#059669" : data.type === "error" ? "#dc2626" : "#111827";
 
   return (
     <Animated.View
@@ -634,21 +1188,15 @@ function Toast({ data, onHide }) {
         paddingHorizontal: 14,
         paddingVertical: 10,
         borderRadius: 12,
-        transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
+        transform: [
+          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) },
+        ],
         opacity: anim,
       }}
     >
       <Text style={{ color: "#fff" }}>{data.msg}</Text>
     </Animated.View>
   );
-}
-
-/* ================================== Utils ================================== */
-function wait(ms) {
-  return new Promise((res) => setTimeout(res, ms));
-}
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 /* ================================== Styles ================================= */
@@ -668,12 +1216,13 @@ const styles = StyleSheet.create({
   },
 
   reticleBox: {
-    width: width * 0.6,
-    height: width * 0.6,
-    borderRadius: 12,
-    borderWidth: 2,
+    width: width * 0.65,
+    height: width * 0.65,
+    borderRadius: 16,
+    borderWidth: 3,
     borderColor: SUCCESS,
   },
+
   corner: {
     position: "absolute",
     width: width * 0.13,
@@ -684,6 +1233,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 4,
     borderColor: "transparent",
     borderRadius: 12,
+  },
+
+  instructionPill: {
+    backgroundColor: "rgba(17,24,39,0.85)",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
   },
 
   galleryBtn: {
@@ -697,8 +1253,204 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.15)",
   },
 
-  sheetOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
-  sheetCard: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: 18 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+
+  scanOptionsCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+
+  manualEntryCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+  },
+
+  handleBar: {
+    width: 48,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#d1d5db",
+  },
+
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 6,
+  },
+
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#6b7280",
+  },
+
+  scanOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9fafb",
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 12,
+    gap: 12,
+  },
+
+  scanOptionIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  scanOptionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  scanOptionSubtitle: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginTop: 2,
+  },
+
+  cancelButton: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    padding: 16,
+    alignItems: "center",
+  },
+
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#6b7280",
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 8,
+  },
+
+  textInput: {
+    backgroundColor: "#f3f4f6",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: "#111827",
+  },
+
+  pickerContainer: {
+    backgroundColor: "#f3f4f6",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+
+  pickerContainerLight: {
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderColor: "#e5e7eb",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+  },
+
+  picker: {
+    color: "#111827",
+  },
+
+  submitButton: {
+    backgroundColor: SUCCESS,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 24,
+    gap: 8,
+  },
+
+  submitButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  cancelButtonAlt: {
+    padding: 14,
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  cancelButtonTextAlt: {
+    color: "#6b7280",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+
+  identificationCard: {
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+
+  servingSizeControl: {
+    marginTop: 8,
+    backgroundColor: "#fff",
+    borderColor: "#e5e7eb",
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+
+  addToMealBtn: {
+    backgroundColor: SUCCESS,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 16,
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+
+  addToMealBtnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+
+  sheetCard: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+  },
 
   btn: {
     backgroundColor: "#1f2a44",
@@ -708,28 +1460,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  btnText: { color: TEXT, fontWeight: "700" },
 
-  primaryBtn: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    backgroundColor: "#111827",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    justifyContent: "center",
-  },
-  primaryBtnText: { color: "#fff", fontWeight: "700" },
-  secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 12,
-    justifyContent: "center",
-  },
-  secondaryBtnText: { color: "#111827", fontWeight: "700" },
+  btnText: { color: TEXT, fontWeight: "700" },
 });

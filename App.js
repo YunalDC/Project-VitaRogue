@@ -59,6 +59,7 @@ import SleepScreen from "./src/screens/SleepScreen";
 import ExerciseDetailScreen from "./src/screens/ExerciseDetailScreen";
 import ArticleDetailScreen from "./src/screens/ArticleDetailScreen";
 import CoachPublicProfileScreen from "./src/screens/CoachPublicProfileScreen";
+import ProgressScreen from './src/screens/ProgressScreen';
 
 /* ─────────────────────────────────────────────────────────── */
 
@@ -146,6 +147,7 @@ function MainStack() {
         component={FoodScanningScreen}
         options={{ headerShown: false, gestureEnabled: false }}
       />
+      <Stack.Screen name="Progress" component={ProgressScreen} options={{ headerShown: false }}/>
       <Stack.Screen name="FoodConfirmation" component={FoodConfirmationScreen} />
       <Stack.Screen name="FoodDetails" component={FoodDetailsScreen} />
       <Stack.Screen name="ExerciseRecommendations" component={ExerciseRecommendationsScreen} />
@@ -235,6 +237,7 @@ function MainStack() {
       />
       <Stack.Screen name="ArticleDetail" component={ArticleDetailScreen} />
     </Stack.Navigator>
+    
   );
 }
 

@@ -308,16 +308,20 @@ export default function BMIScreen({ navigation }) {
   <Ionicons name="chevron-forward" size={18} color={MUTED} />
 </TouchableOpacity>
 
-          <TouchableOpacity style={styles.resourceButton}>
-            <Ionicons name="people-outline" size={20} color="#10b981" />
-            <Text style={styles.resourceButtonText}>Connect with a Coach</Text>
-            <Ionicons name="chevron-forward" size={18} color={MUTED} />
-          </TouchableOpacity>
-        </View>
+<TouchableOpacity 
+  style={styles.resourceButton}
+  onPress={() => navigation.navigate("CoachMarket")}
+  activeOpacity={0.7}
+>
+  <Ionicons name="people-outline" size={20} color="#10b981" />
+  <Text style={styles.resourceButtonText}>Connect with a Coach</Text>
+  <Ionicons name="chevron-forward" size={18} color={MUTED} />
+</TouchableOpacity> </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
+    
   );
 }
 

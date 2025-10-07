@@ -13,6 +13,7 @@
     },
     "extra": {
       "GOOGLE_PLACES_API_KEY": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA",
+      "GEMINI_API_KEY": "AIzaSyBYk-O6RFxd5zZfGXaTXnXoiE-r1htaNgQ",
       "eas": {
         "projectId": "96e37541-8b98-4aa7-91a2-acc5b006c78e"
       }
@@ -20,11 +21,15 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We use your location to find nearby gyms."
+        "NSLocationWhenInUseUsageDescription": "We use your location to find nearby gyms.",
+        "NSCameraUsageDescription": "Allow VitaRogue to access your camera to scan and identify food items for nutrition tracking.",
+        "NSPhotoLibraryUsageDescription": "Allow VitaRogue to access your photos to identify food items from your gallery.",
+        "NSMicrophoneUsageDescription": "This app does not require microphone access."
       },
       "config": {
         "googleMapsApiKey": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA"
-      }
+      },
+      "bundleIdentifier": "com.everboltit.VitaRogue"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,8 +40,10 @@
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "CAMERA",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ],
       "config": {
         "googleMaps": {
@@ -47,6 +54,21 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow VitaRogue to access your camera to scan and identify food items for nutrition tracking.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow VitaRogue to access your photos to identify food items from your gallery."
+        }
+      ]
+    ]
   }
 }
