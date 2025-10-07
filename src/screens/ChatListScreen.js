@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, doc, getDoc } from "firebase/firestore";
 
 const BG = "#0B1220";
 const CARD = "#111827";
@@ -27,6 +27,7 @@ export default function ChatListScreen({ navigation }) {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [myRole, setMyRole] = useState('user');
 
   useEffect(() => {
     const auth = getAuth();
@@ -37,7 +38,8 @@ export default function ChatListScreen({ navigation }) {
       return;
     }
 
-    setCurrentUserId(user.uid);
+  setCurrentUserId(user.uid);
+  (async () => { try { const uSnap = await getDoc(doc(db,'users', user.uid)); if (uSnap.exists()) setMyRole(uSnap.data()?.role || 'user'); } catch(_) {} })();
 
     // Query chats where current user is a participant
     const chatsRef = collection(db, "chats");
@@ -127,10 +129,16 @@ export default function ChatListScreen({ navigation }) {
           <View style={styles.chatHeader}>
             <View style={styles.chatTitleRow}>
               <Text style={styles.chatName}>{otherUser.name || "Unknown"}</Text>
-              {otherUser.role === "trainer" && (
+              {otherUser.role === 'coach' && (
                 <View style={styles.roleBadge}>
                   <Ionicons name="fitness" size={10} color={SUCCESS} />
                   <Text style={styles.roleBadgeText}>Coach</Text>
+                </View>
+              )}
+              {otherUser.role !== 'coach' && myRole === 'coach' && (
+                <View style={styles.roleBadge}>
+                  <Ionicons name="person" size={10} color={SUCCESS} />
+                  <Text style={styles.roleBadgeText}>Client</Text>
                 </View>
               )}
             </View>

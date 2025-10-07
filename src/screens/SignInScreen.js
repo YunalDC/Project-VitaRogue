@@ -9,8 +9,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import Icon from "react-native-vector-icons/Ionicons";
 
 import { signIn } from "../lib/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../lib/firebaseApp";
+import { firebaseAuth, db } from "../lib/firebaseApp";
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const { width, height } = Dimensions.get("window");
 const IS_SMALL = height < 700;
@@ -122,11 +122,14 @@ export default function SignInScreen({ navigation }) {
         throw e;
       }
 
-      // Step 5: navigation
-      // NOTE: App.js owns root routing via AuthRoot / OnboardingRoot / MainRoot.
-      // Here we simply navigate within the auth stack; root reset is handled by listener.
-  // Root navigation will re-route automatically based on user doc listener in App.js (route state logic).
-  // No manual navigation needed here.
+      // Step 5: rely on global auth listener (App.js) for root routing; log state for debugging
+      try {
+        const finalSnap = await getDoc(profileRef);
+        const finalData = finalSnap.data() || {};
+        console.log('[SIGNIN] Post-auth doc role=', finalData.role, 'onboardingComplete=', finalData.onboardingComplete);
+      } catch (e) {
+        console.warn('[SIGNIN] post-auth getDoc failed', e);
+      }
     } catch (e) {
       let msg = e?.message || String(e);
       if (e?.code === 'permission-denied') {

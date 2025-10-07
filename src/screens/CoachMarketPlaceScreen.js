@@ -1,5 +1,5 @@
 // src/screens/CoachMarketPlaceScreen.js
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,9 +11,14 @@ import {
   LayoutAnimation,
   UIManager,
   Platform,
-  ScrollView
+  ScrollView,
+  Alert,
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
+import { collection, onSnapshot, query, where, doc, getDoc, setDoc, serverTimestamp, addDoc, updateDoc, increment } from 'firebase/firestore';
+import { db } from '../lib/firebaseApp';
+import { getAuth } from 'firebase/auth';
+import { getOrCreateOneToOneChat } from '../lib/chatUtils';
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 
@@ -33,173 +38,9 @@ const MUTED = "#8EA1B8";
 const ACCENT = "#10B981";
 const CHIP_BG = "rgba(18, 35, 57, 0.7)";
 
-/* ----------------- Dummy Data (13) ----------------- */
-const dummyCoaches = [
-  {
-    id: "1",
-    name: "John Doe",
-    photo: "https://randomuser.me/api/portraits/men/32.jpg",
-    rating: 4.5,
-    specialization: "Strength Training",
-    category: "Strength",
-    bio: "Certified personal trainer with 5 years of experience in strength and conditioning. Focuses on building muscle and functional strength with tailored programs.",
-    whatsapp: "+1234567890",
-    reviewsList: [
-      { id: "r1", reviewer: "Alice", comment: "Great trainer, very motivating!", stars: 5 },
-      { id: "r2", reviewer: "Bob", comment: "Helped me improve my form.", stars: 4 },
-    ],
-  },
-  {
-    id: "2",
-    name: "Jane Smith",
-    photo: "https://randomuser.me/api/portraits/women/44.jpg",
-    rating: 4.8,
-    specialization: "Yoga & Flexibility",
-    category: "Yoga",
-    bio: "Yoga instructor passionate about holistic health and mindfulness. Teaches Hatha and Vinyasa yoga for all levels.",
-    whatsapp: "+1987654321",
-    reviewsList: [
-      { id: "r1", reviewer: "Charlie", comment: "Very calm and professional.", stars: 5 },
-      { id: "r2", reviewer: "Diana", comment: "My flexibility improved a lot!", stars: 5 },
-    ],
-  },
-  {
-    id: "3",
-    name: "Mike Johnson",
-    photo: "https://randomuser.me/api/portraits/men/56.jpg",
-    rating: 4.2,
-    specialization: "HIIT & Cardio",
-    category: "Cardio",
-    bio: "High-intensity interval training expert focused on fat loss and endurance. Uses fun, challenging circuits.",
-    whatsapp: "+1122334455",
-    reviewsList: [
-      { id: "r1", reviewer: "Eva", comment: "Intense sessions, highly recommend!", stars: 4 },
-      { id: "r2", reviewer: "Frank", comment: "Challenging but fun workouts.", stars: 4 },
-    ],
-  },
-  {
-    id: "4",
-    name: "Sarah Lee",
-    photo: "https://randomuser.me/api/portraits/women/65.jpg",
-    rating: 4.9,
-    specialization: "Pilates",
-    category: "Pilates",
-    bio: "Pilates instructor with 7 years experience helping clients strengthen core and improve posture.",
-    whatsapp: "+1098765432",
-    reviewsList: [
-      { id: "r1", reviewer: "Hannah", comment: "Amazing attention to detail!", stars: 5 },
-      { id: "r2", reviewer: "Irene", comment: "Improved my posture significantly.", stars: 4 },
-    ],
-  },
-  {
-    id: "5",
-    name: "David Brown",
-    photo: "https://randomuser.me/api/portraits/men/72.jpg",
-    rating: 4.6,
-    specialization: "Crossfit",
-    category: "Strength",
-    bio: "Crossfit coach specialized in endurance, weightlifting, and functional training. Motivates clients to push boundaries.",
-    whatsapp: "+1230984567",
-    reviewsList: [
-      { id: "r1", reviewer: "Jack", comment: "Great energy and guidance!", stars: 5 },
-      { id: "r2", reviewer: "Kevin", comment: "Saw improvements quickly!", stars: 4 },
-    ],
-  },
-  {
-    id: "6",
-    name: "Laura White",
-    photo: "https://randomuser.me/api/portraits/women/30.jpg",
-    rating: 4.7,
-    specialization: "Cardio & Endurance",
-    category: "Cardio",
-    bio: "Passionate about long-distance running and stamina training. Helps clients increase endurance safely.",
-    whatsapp: "+1987001122",
-    reviewsList: [
-      { id: "r1", reviewer: "Sam", comment: "Love her running tips!", stars: 5 },
-      { id: "r2", reviewer: "Nina", comment: "Great motivational coach.", stars: 5 },
-    ],
-  },
-  {
-    id: "7",
-    name: "Tom Harris",
-    photo: "https://randomuser.me/api/portraits/men/45.jpg",
-    rating: 4.3,
-    specialization: "Strength & Conditioning",
-    category: "Strength",
-    bio: "Experienced coach in muscle building and strength programs for all levels.",
-    whatsapp: "+1234556677",
-    reviewsList: [
-      { id: "r1", reviewer: "Liam", comment: "Great strength plans.", stars: 4 },
-      { id: "r2", reviewer: "Olivia", comment: "Saw good results fast!", stars: 5 },
-    ],
-  },
-  {
-    id: "8",
-    name: "Emily Clark",
-    photo: "https://randomuser.me/api/portraits/women/12.jpg",
-    rating: 4.5,
-    specialization: "Yoga & Meditation",
-    category: "Yoga",
-    bio: "Specializes in mindfulness yoga and stress reduction techniques.",
-    whatsapp: "+1234012345",
-    reviewsList: [{ id: "r1", reviewer: "Sophia", comment: "Very calming sessions.", stars: 5 }],
-  },
-  {
-    id: "9",
-    name: "Chris Martin",
-    photo: "https://randomuser.me/api/portraits/men/22.jpg",
-    rating: 4.1,
-    specialization: "Functional Training",
-    category: "Strength",
-    bio: "Functional training expert helping clients with mobility, balance, and strength.",
-    whatsapp: "+1234023456",
-    reviewsList: [{ id: "r1", reviewer: "Tom", comment: "Effective workouts.", stars: 4 }],
-  },
-  {
-    id: "10",
-    name: "Olivia Turner",
-    photo: "https://randomuser.me/api/portraits/women/23.jpg",
-    rating: 4.8,
-    specialization: "Pilates & Core",
-    category: "Pilates",
-    bio: "Focuses on strengthening the core and improving posture for all ages.",
-    whatsapp: "+1234034567",
-    reviewsList: [{ id: "r1", reviewer: "Emma", comment: "Love her classes!", stars: 5 }],
-  },
-  {
-    id: "11",
-    name: "Ryan Scott",
-    photo: "https://randomuser.me/api/portraits/men/24.jpg",
-    rating: 4.4,
-    specialization: "HIIT",
-    category: "Cardio",
-    bio: "Energetic HIIT coach to boost stamina and fat loss.",
-    whatsapp: "+1234045678",
-    reviewsList: [{ id: "r1", reviewer: "Daniel", comment: "Super intense workouts!", stars: 4 }],
-  },
-  {
-    id: "12",
-    name: "Sophia Adams",
-    photo: "https://randomuser.me/api/portraits/women/25.jpg",
-    rating: 4.6,
-    specialization: "Strength & Conditioning",
-    category: "Strength",
-    bio: "Helps clients build strength safely and effectively.",
-    whatsapp: "+1234056789",
-    reviewsList: [{ id: "r1", reviewer: "Mia", comment: "Very knowledgeable!", stars: 5 }],
-  },
-  {
-    id: "13",
-    name: "Ethan Brooks",
-    photo: "https://randomuser.me/api/portraits/men/26.jpg",
-    rating: 4.3,
-    specialization: "Cardio & Endurance",
-    category: "Cardio",
-    bio: "Endurance coach for running and high-intensity cardio programs.",
-    whatsapp: "+1234067890",
-    reviewsList: [{ id: "r1", reviewer: "Noah", comment: "Improved my stamina!", stars: 4 }],
-  },
-];
+// Firestore-backed coach marketplace uses public coach docs.
+// Each coach document should expose safe public fields (name, specialization, photoURL/avatar, rating, categories, shortBio).
+// Real-time listener keeps list fresh.
 
 const categories = ["All", "Strength", "Yoga", "Cardio", "Pilates"];
 
@@ -218,14 +59,121 @@ const CatIcon = ({ cat, size = 14, color = TEXT }) => {
 /* ===================== Component ===================== */
 export default function CoachMarketplaceScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-
-  const [coaches, setCoaches] = useState(dummyCoaches);
+  const [coaches, setCoaches] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [reviewInputs, setReviewInputs] = useState({});
   const [reviewStars, setReviewStars] = useState({});
   const [sort, setSort] = useState("Top rated"); // "Top rated" | "Name"
+  const [creatingChatCoachId, setCreatingChatCoachId] = useState(null);
+
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
+
+  // TEMP helper: ensure a coach listing exists for the specified test email without changing user role
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!currentUser) return;
+        const targetEmail = 'yunaldecosta145@gmail.com';
+        if ((currentUser.email || '').toLowerCase() !== targetEmail) return; // only run for that account
+        const coachRef = doc(db, 'coaches', currentUser.uid);
+        const snap = await getDoc(coachRef);
+        if (snap.exists()) return; // already has listing
+        await setDoc(coachRef, {
+          name: 'Yunal De Costa',
+          displayName: 'Yunal De Costa',
+          specialization: 'Strength & Conditioning',
+          specializationCategory: 'Strength',
+          shortBio: 'Supporting athletes and everyday people to move better and get stronger.',
+          rating: 4.9,
+          public: true,
+          avatar: currentUser.photoURL || 'https://placehold.co/200x200/png',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          coachOnboardingComplete: true,
+          phoneVerified: true,
+          coachEmailVerified: true,
+          status: 'approved',
+          experienceYears: 5,
+          focus: 'Strength & Performance Coaching',
+          reviewsList: [
+            { id: 'seed1', reviewer: 'Test User', comment: 'Incredible coaching quality!', stars: 5 },
+            { id: 'seed2', reviewer: 'Early Adopter', comment: 'Very knowledgeable and professional.', stars: 5 }
+          ]
+        }, { merge: true });
+        console.log('[CoachMarketplace] Created test coach listing for', targetEmail);
+      } catch (e) {
+        console.warn('[CoachMarketplace] ensure test coach failed', e);
+      }
+    })();
+  }, [currentUser]);
+
+  // Subscribe to coaches collection
+  useEffect(() => {
+    const coachesRef = collection(db, 'coaches');
+    // Only approved or public coaches; fallback to any if field missing
+    const qRef = query(coachesRef, where('public', '==', true));
+    const unsub = onSnapshot(qRef, snap => {
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Temporary removal of seeded test coach 'Hirun Bruce'
+      list = list.filter(c => (c.name||c.displayName) !== 'Hirun Bruce');
+      setCoaches(list);
+      setLoading(false);
+    }, e => { console.warn('[CoachMarketplace] listen error', e); setLoading(false); });
+    return () => unsub();
+  }, []);
+
+  const startChat = useCallback(async (coach) => {
+    if (!currentUser) { console.log('[CoachMarketplace] startChat aborted: no currentUser'); return; }
+    if (currentUser.uid === coach.id) {
+      Alert.alert('Cannot Message Yourself', 'Create/sign in with a separate user account to message this coach. (Your account owns this listing)');
+      return;
+    }
+    if (creatingChatCoachId) return; // already creating
+    setCreatingChatCoachId(coach.id);
+    let chat; let stage = 'create';
+    try {
+      console.log('[CoachMarketplace] startChat -> getOrCreateOneToOneChat');
+      chat = await getOrCreateOneToOneChat(currentUser.uid, coach.id);
+      console.log('[CoachMarketplace] chat id', chat.id, 'has lastMessage?', !!chat.lastMessage);
+      stage = 'seed-check';
+      if (!chat.lastMessage || !chat._seededGreeting) {
+        console.log('[CoachMarketplace] seeding greeting');
+        stage = 'seed-write-message';
+        const greeting = 'Hi coach! I would like to connect.';
+        const messagesRef = collection(db, 'chats', chat.id, 'messages');
+        await addDoc(messagesRef, {
+          text: greeting,
+          senderId: currentUser.uid,
+          timestamp: serverTimestamp(),
+          read: false,
+        });
+        stage = 'seed-update-chat';
+        const chatRef = doc(db, 'chats', chat.id);
+        await updateDoc(chatRef, {
+          lastMessage: { text: greeting, senderId: currentUser.uid, timestamp: serverTimestamp() },
+          updatedAt: serverTimestamp(),
+          _seededGreeting: true,
+          [`unreadCount.${coach.id}`]: increment(1),
+        });
+      }
+      stage = 'navigate';
+      navigation.navigate('Chat', { chatId: chat.id, otherUser: chat.participantDetails[coach.id] || { id: coach.id, name: coach.name || coach.displayName || 'Coach', role: 'coach' } });
+    } catch (e) {
+      console.warn('[CoachMarketplace] startChat error stage='+stage, e);
+      const msg = e?.message || 'Unknown error';
+      Alert.alert('Chat Error', `Could not start chat (stage: ${stage}). ${msg}`);
+      if (chat?.id && stage !== 'navigate') {
+        // still navigate so user can attempt manually
+        navigation.navigate('Chat', { chatId: chat.id, otherUser: chat?.participantDetails?.[coach.id] || { id: coach.id, name: coach.name || 'Coach', role: 'coach' } });
+      }
+    } finally {
+      setCreatingChatCoachId(null);
+    }
+  }, [currentUser, navigation, creatingChatCoachId]);
 
   const toggleExpand = (id) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -256,11 +204,15 @@ export default function CoachMarketplaceScreen({ navigation }) {
   };
 
   /* -------------- Derived filtered/sorted list -------------- */
-  const filtered = coaches.filter(
-    (c) =>
-      (selectedCategory === "All" || c.category === selectedCategory) &&
-      c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = useMemo(() => coaches.filter(c => {
+    // Show the coach listing to all users, only hide it to itself if desired.
+    const hideSelf = currentUser && currentUser.uid === c.id && (currentUser.email||'').toLowerCase() === 'yunaldecosta145@gmail.com';
+    if (hideSelf) return false; // coach won't see own card; others will.
+    const cat = selectedCategory === 'All' || (c.category || c.specializationCategory) === selectedCategory;
+    const term = search.trim().toLowerCase();
+    const nameMatch = !term || (c.name || c.displayName || '').toLowerCase().includes(term);
+    return cat && nameMatch;
+  }), [coaches, selectedCategory, search, currentUser]);
 
   const sorted =
     sort === "Name"
@@ -288,6 +240,13 @@ export default function CoachMarketplaceScreen({ navigation }) {
 
   const renderCoach = ({ item }) => {
     const expanded = expandedId === item.id;
+    const coachName = item.name || item.displayName || 'Coach';
+    const specialization = item.specialization || item.focus || 'Fitness';
+    const rating = item.rating || item.avgRating || 0;
+    const category = item.category || item.specializationCategory || 'General';
+    const photo = item.photoURL || item.avatar || 'https://placehold.co/120x120/png';
+    const bio = item.shortBio || item.bio || 'No bio provided yet.';
+    const reviews = item.reviewsList || [];
     return (
       <TouchableOpacity
         activeOpacity={0.9}
@@ -296,47 +255,58 @@ export default function CoachMarketplaceScreen({ navigation }) {
       >
         {/* Top row */}
         <View style={styles.row}>
-          <Image source={{ uri: item.photo }} style={styles.photo} />
+          <Image source={{ uri: photo }} style={styles.photo} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.specialization}>{item.specialization}</Text>
+            <Text style={styles.name}>{coachName}</Text>
+            <Text style={styles.specialization}>{specialization}</Text>
 
             <View style={styles.badgesRow}>
               <View style={styles.smallChip}>
-                <CatIcon cat={item.category} size={12} color={ACCENT} />
-                <Text style={styles.smallChipText}>{item.category}</Text>
+                <CatIcon cat={category} size={12} color={ACCENT} />
+                <Text style={styles.smallChipText}>{category}</Text>
               </View>
               <View style={styles.statItem}>
                 <Ionicons name="chatbubble-outline" size={15} color={MUTED} />
-                <Text style={styles.statText}>{item.reviewsList.length} reviews</Text>
+                <Text style={styles.statText}>{reviews.length} reviews</Text>
               </View>
             </View>
           </View>
 
           <View style={styles.ratingBubble}>
             <Ionicons name="star" size={13} color="#facc15" />
-            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+            <Text style={styles.ratingText}>{Number(rating).toFixed(1)}</Text>
           </View>
         </View>
 
         {/* Expanded content */}
         {expanded && (
           <View style={styles.expanded}>
-            <Text style={styles.bio}>{item.bio}</Text>
+            <Text style={styles.bio}>{bio}</Text>
 
-            <TouchableOpacity
-              style={styles.whatsappButton}
-              onPress={() => alert(`WhatsApp: ${item.whatsapp}`)}
-            >
-              <FontAwesome name="whatsapp" size={20} color={BG} />
-              <Text style={styles.whatsappText}>{item.whatsapp}</Text>
-            </TouchableOpacity>
-
+            <View style={{ flexDirection:'row', gap:8, marginBottom:12 }}>
+              <TouchableOpacity
+                style={styles.whatsappButton}
+                onPress={() => startChat(item)}
+                disabled={creatingChatCoachId===item.id}
+              >
+                <Ionicons name="chatbubbles" size={18} color={BG} />
+                <Text style={styles.whatsappText}>Message</Text>
+              </TouchableOpacity>
+              {currentUser?.uid !== item.id && (
+                <TouchableOpacity
+                  style={[styles.whatsappButton,{ backgroundColor:'#334155' }]}
+                  onPress={() => navigation.navigate('CoachPublicProfile', { coachId: item.id })}
+                >
+                  <Ionicons name="person-circle" size={18} color={ACCENT} />
+                  <Text style={[styles.whatsappText,{ color:ACCENT }]}>View Profile</Text>
+                </TouchableOpacity>
+              )}
+            </View>
             <Text style={styles.sectionTitle}>Reviews</Text>
-            {item.reviewsList.map((review) => (
+            {reviews.map((review, idx) => (
               <View key={review.id} style={styles.reviewItem}>
                 <Text style={styles.reviewer}>
-                  {review.reviewer} ({review.stars}⭐)
+                  {(review.reviewer||'User')} ({review.stars||'--'}⭐)
                 </Text>
                 <Text style={styles.reviewComment}>{review.comment}</Text>
               </View>
@@ -473,6 +443,13 @@ export default function CoachMarketplaceScreen({ navigation }) {
         renderItem={renderCoach}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
+        ListEmptyComponent={!loading && (
+          <View style={{ alignItems:'center', marginTop:40 }}>
+            <Ionicons name='people-circle-outline' size={56} color={MUTED} />
+            <Text style={{ color:TEXT, fontWeight:'700', marginTop:12 }}>No coaches found</Text>
+            <Text style={{ color:MUTED, fontSize:12, marginTop:4 }}>Try adjusting search or categories</Text>
+          </View>
+        )}
       />
     </SafeAreaView>
   );

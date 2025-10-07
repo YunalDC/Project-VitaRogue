@@ -762,7 +762,7 @@ export default function CoachDashboardScreen({ navigation }) {
   };
 
   const onMessageCenter = () => {
-    showDialog("Message Center", "Open messaging interface for client communication");
+    navigation.navigate('CoachMessages');
   };
 
   const onEmergencyContact = () => {

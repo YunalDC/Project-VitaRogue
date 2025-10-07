@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { fetchParticipantProfile } from '../lib/chatUtils';
 import {
   collection,
   query,
@@ -26,6 +28,10 @@ import {
   doc,
   updateDoc,
   increment,
+  getDoc,
+  limit,
+  startAfter,
+  getDocs,
 } from "firebase/firestore";
 
 const BG = "#0B1220";
@@ -36,61 +42,77 @@ const MUTED = "#94a3b8";
 const SUCCESS = "#10B981";
 
 export default function ChatScreen({ route, navigation }) {
-  const { chatId, otherUser } = route.params;
+  const { chatId, otherUser: initialOtherUser } = route.params;
+  const [otherUser, setOtherUser] = useState(initialOtherUser || null);
   const [messages, setMessages] = useState([]);
+  const [pageCursor, setPageCursor] = useState(null);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const [myRole, setMyRole] = useState('user');
+  const [loadingMore, setLoadingMore] = useState(false);
   const flatListRef = useRef(null);
+  const PAGE_SIZE = 40;
 
   useEffect(() => {
     const auth = getAuth();
     const user = auth.currentUser;
-
-    if (!user) {
-      setLoading(false);
-      return;
-    }
-
+    if (!user) { setLoading(false); return; }
     setCurrentUserId(user.uid);
+  // fetch my role
+  (async () => { try { const uSnap = await getDoc(doc(db,'users', user.uid)); if (uSnap.exists()) setMyRole(uSnap.data()?.role||'user'); } catch(_) {} })();
+  const messagesRef = collection(db, 'chats', chatId, 'messages');
+    const qNewest = query(messagesRef, orderBy('timestamp', 'desc'), limit(PAGE_SIZE));
+    const unsub = onSnapshot(qNewest, snap => {
+      const docs = snap.docs;
+      const list = docs.map(d => ({ id: d.id, ...d.data() }));
+      setPageCursor(docs[docs.length - 1] || null);
+      setMessages(list.slice().reverse());
+      setLoading(false);
+      markMessagesAsRead();
+    }, err => { console.error('[ChatScreen] listen error', err); setLoading(false); });
+    return () => unsub();
+  }, [chatId, markMessagesAsRead]);
 
-    // Subscribe to messages
-    const messagesRef = collection(db, "chats", chatId, "messages");
-    const q = query(messagesRef, orderBy("timestamp", "asc"));
-
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const messageList = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setMessages(messageList);
-        setLoading(false);
-
-        // Mark messages as read
-        markMessagesAsRead(user.uid);
-      },
-      (error) => {
-        console.error("Error loading messages:", error);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+  useEffect(() => {
+    // Auto-repair participant details if missing, placeholder, or outdated
+    (async () => {
+      try {
+        const auth = getAuth();
+        const me = auth.currentUser?.uid;
+        if (!me) return;
+        const chatRef = doc(db, 'chats', chatId);
+        const snap = await getDoc(chatRef);
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        const otherId = (data.participants || []).find(p => p !== me);
+        if (!otherId) return;
+        const stored = data.participantDetails?.[otherId];
+        const fresh = await fetchParticipantProfile(otherId);
+        const placeholderNames = ['User', 'Unknown', (fresh.email||'').split('@')[0]];
+        const needsPatch = !stored || placeholderNames.includes(stored.name) || stored.name !== fresh.name || stored.role !== fresh.role;
+        if (needsPatch) {
+          await updateDoc(chatRef, { [`participantDetails.${otherId}`]: { id: fresh.id, name: fresh.name, role: fresh.role } });
+        }
+        // Update local state if initial param missing or outdated
+        if (!otherUser || otherUser.name !== fresh.name) {
+          setOtherUser({ id: fresh.id, name: fresh.name, role: fresh.role });
+        }
+      } catch(e) { console.warn('[ChatScreen] participant auto-repair failed', e); }
+    })();
   }, [chatId]);
 
-  const markMessagesAsRead = async (userId) => {
+  const markMessagesAsRead = useCallback(async () => {
     try {
-      const chatRef = doc(db, "chats", chatId);
-      await updateDoc(chatRef, {
-        [`unreadCount.${userId}`]: 0,
-      });
-    } catch (error) {
-      console.error("Error marking messages as read:", error);
-    }
-  };
+      const auth = getAuth();
+      const me = auth.currentUser?.uid;
+      if (!me) return;
+      const functions = getFunctions();
+      const callable = httpsCallable(functions, 'markChatRead');
+      await callable({ chatId });
+    } catch(_) {}
+  }, [chatId]);
 
   const sendMessage = async () => {
     if (!inputText.trim() || !currentUserId || sending) return;
@@ -100,27 +122,8 @@ export default function ChatScreen({ route, navigation }) {
     setSending(true);
 
     try {
-      const messagesRef = collection(db, "chats", chatId, "messages");
-      
-      // Add message
-      await addDoc(messagesRef, {
-        text: messageText,
-        senderId: currentUserId,
-        timestamp: serverTimestamp(),
-        read: false,
-      });
-
-      // Update chat metadata
-      const chatRef = doc(db, "chats", chatId);
-      await updateDoc(chatRef, {
-        lastMessage: {
-          text: messageText,
-          senderId: currentUserId,
-          timestamp: serverTimestamp(),
-        },
-        updatedAt: serverTimestamp(),
-        [`unreadCount.${otherUser.id}`]: increment(1),
-      });
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
+      await addDoc(messagesRef, { text: messageText, senderId: currentUserId, timestamp: serverTimestamp() });
 
       // Scroll to bottom
       setTimeout(() => {
@@ -133,9 +136,29 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
+  const loadEarlier = async () => {
+    if (loadingMore || !pageCursor) return;
+    setLoadingMore(true);
+
+    try {
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
+      const qOlder = query(messagesRef, orderBy('timestamp', 'desc'), startAfter(pageCursor), limit(PAGE_SIZE));
+      const snap = await getDocs(qOlder);
+      const docs = snap.docs;
+      const list = docs.map(d => ({ id: d.id, ...d.data() }));
+
+      setPageCursor(docs[docs.length - 1] || null);
+      setMessages(prev => [...prev, ...list.reverse()]);
+    } catch (error) {
+      console.error("Error loading earlier messages:", error);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const formatMessageTime = (timestamp) => {
     if (!timestamp) return "";
-    
+
     const date = timestamp.toDate();
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
@@ -146,9 +169,12 @@ export default function ChatScreen({ route, navigation }) {
 
   const renderMessage = ({ item, index }) => {
     const isCurrentUser = item.senderId === currentUserId;
-    const showTimestamp = index === 0 || 
-      (messages[index - 1] && 
-       Math.abs(item.timestamp?.toMillis() - messages[index - 1].timestamp?.toMillis()) > 300000); // 5 minutes
+    const showTimestamp =
+      index === 0 ||
+      (messages[index - 1] &&
+        Math.abs(
+          item.timestamp?.toMillis() - messages[index - 1].timestamp?.toMillis()
+        ) > 300000); // 5 minutes
 
     return (
       <View style={styles.messageContainer}>
@@ -159,7 +185,7 @@ export default function ChatScreen({ route, navigation }) {
             </Text>
           </View>
         )}
-        
+
         <View
           style={[
             styles.messageBubble,
@@ -201,9 +227,8 @@ export default function ChatScreen({ route, navigation }) {
           </View>
           <View>
             <Text style={styles.headerName}>{otherUser?.name || "Unknown"}</Text>
-            {otherUser?.role === "trainer" && (
-              <Text style={styles.headerRole}>Coach</Text>
-            )}
+            {otherUser?.role === 'coach' && <Text style={styles.headerRole}>Coach</Text>}
+            {otherUser?.role !== 'coach' && myRole === 'coach' && <Text style={styles.headerRole}>Client</Text>}
           </View>
         </View>
 
@@ -222,24 +247,29 @@ export default function ChatScreen({ route, navigation }) {
           </View>
         ) : (
           <FlatList
-            ref={flatListRef}
-            data={messages}
-            renderItem={renderMessage}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.messagesContainer}
-            showsVerticalScrollIndicator={false}
-            onContentSizeChange={() =>
-              flatListRef.current?.scrollToEnd({ animated: false })
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Ionicons name="chatbubble-outline" size={48} color={MUTED} />
-                <Text style={styles.emptyText}>No messages yet</Text>
-                <Text style={styles.emptySubtext}>
-                  Start the conversation!
-                </Text>
-              </View>
-            }
+             ref={flatListRef}
+             data={messages}
+             renderItem={renderMessage}
+             keyExtractor={(item) => item.id}
+             contentContainerStyle={styles.messagesContainer}
+             showsVerticalScrollIndicator={false}
+             onContentSizeChange={() =>
+               flatListRef.current?.scrollToEnd({ animated: false })
+             }
+             ListHeaderComponent={pageCursor ? (
+              <TouchableOpacity style={styles.loadMoreBtn} onPress={loadEarlier} disabled={loadingMore}>
+                <Text style={styles.loadMoreText}>{loadingMore ? 'Loading…' : 'Load earlier messages'}</Text>
+              </TouchableOpacity>
+            ) : null}
+             ListEmptyComponent={
+               <View style={styles.emptyContainer}>
+                 <Ionicons name="chatbubble-outline" size={48} color={MUTED} />
+                 <Text style={styles.emptyText}>No messages yet</Text>
+                 <Text style={styles.emptySubtext}>
+                   Start the conversation!
+                 </Text>
+               </View>
+             }
           />
         )}
 
@@ -425,4 +455,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
   },
+  loadMoreBtn: {
+    alignSelf: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: '#1e293b',
+    marginBottom: 8,
+  },
+  loadMoreText: { color: SUCCESS, fontSize: 12, fontWeight: '600' },
 });

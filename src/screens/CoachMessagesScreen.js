@@ -1,5 +1,5 @@
 // src/screens/CoachMessagesScreen.js
-import React, { useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { getAuth } from 'firebase/auth';
+import { db } from '../lib/firebaseApp';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 
 const BG = "#0B1220";
 const CARD = "#111827";
@@ -18,47 +21,92 @@ const TEXT = "#e5e7eb";
 const MUTED = "#94a3b8";
 const ACCENT = "#10B981";
 
-const dummyThreads = [
-  { id: "1", name: "Coach Sarah", last: "Great job today! Same time tomorrow?", unread: 2 },
-  { id: "2", name: "Coach David", last: "I shared your split plan. Thoughts?", unread: 0 },
-  { id: "3", name: "Coach Jane", last: "Proud of your consistency 💪", unread: 1 },
-];
-
 export default function CoachMessagesScreen({ navigation }) {
   const [q, setQ] = useState("");
+  const [chats, setChats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState(null);
 
-  const data = dummyThreads.filter((t) =>
-    t.name.toLowerCase().includes(q.trim().toLowerCase())
-  );
+  // Subscribe to chats containing current user (coach or user)
+  useEffect(() => {
+    const auth = getAuth();
+    const u = auth.currentUser;
+    if (!u) { setLoading(false); return; }
+    setCurrentUserId(u.uid);
+    const chatsRef = collection(db, 'chats');
+    // Removed orderBy to avoid composite index requirement; sort client-side.
+    const qChats = query(chatsRef, where('participants', 'array-contains', u.uid));
+    const unsub = onSnapshot(qChats, snap => {
+      const arr = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Sort by updatedAt (desc); fallback to lastMessage.timestamp; undefined last.
+      arr.sort((a, b) => {
+        const ta = (a.updatedAt?.toMillis?.() || a.lastMessage?.timestamp?.toMillis?.() || 0);
+        const tb = (b.updatedAt?.toMillis?.() || b.lastMessage?.timestamp?.toMillis?.() || 0);
+        return tb - ta;
+      });
+      setChats(arr); setLoading(false);
+    }, e => { console.warn('[CoachMessages] listen error', e); setLoading(false); });
+    return () => unsub();
+  }, []);
 
-  const renderItem = ({ item }) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      style={styles.thread}
-      onPress={() => {
-        // navigate to a chat detail screen if/when you add one
-        // navigation.navigate("CoachChat", { threadId: item.id });
-      }}
-    >
-      <View style={styles.avatar}>
-        <Text style={styles.avatarInitial}>{item.name.charAt(0)}</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.name}>{item.name}</Text>
-          {item.unread > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeTxt}>{item.unread}</Text>
-            </View>
-          )}
+  const filterChats = useCallback(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return chats;
+    return chats.filter(c => {
+      const other = getOtherParticipant(c);
+      return other?.name?.toLowerCase().includes(term);
+    });
+  }, [q, chats]);
+
+  const getOtherParticipant = (chat) => {
+    if (!currentUserId) return null;
+    const otherId = chat.participants?.find(p => p !== currentUserId);
+    return chat.participantDetails?.[otherId] || null;
+  };
+
+  const onOpenChat = (chat) => {
+    const other = getOtherParticipant(chat);
+    navigation.navigate('Chat', { chatId: chat.id, otherUser: other });
+  };
+
+  const formatTime = (ts) => {
+    if (!ts?.toDate) return '';
+    const d = ts.toDate();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const data = filterChats();
+
+  const renderItem = ({ item }) => {
+    const other = getOtherParticipant(item);
+    if (!other) return null;
+    const unread = item.unreadCount?.[currentUserId] || 0;
+    const lastText = item.lastMessage?.text || 'No messages yet';
+    const time = formatTime(item.lastMessage?.timestamp);
+    return (
+      <TouchableOpacity
+        activeOpacity={0.85}
+        style={styles.thread}
+        onPress={() => onOpenChat(item)}
+      >
+        <View style={styles.avatar}>
+          <Text style={styles.avatarInitial}>{other.name?.charAt(0) || '?'}</Text>
         </View>
-        <Text style={styles.last} numberOfLines={1}>
-          {item.last}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={MUTED} />
-    </TouchableOpacity>
-  );
+        <View style={{ flex: 1 }}>
+          <View style={styles.rowBetween}>
+            <Text style={styles.name}>{other.name || 'Unknown'}</Text>
+            {unread > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeTxt}>{unread}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.last} numberOfLines={1}>{lastText}</Text>
+        </View>
+        <Text style={styles.time}>{time}</Text>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -76,7 +124,7 @@ export default function CoachMessagesScreen({ navigation }) {
         <Ionicons name="search" size={18} color={MUTED} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search coaches…"
+    placeholder="Search clients…"
           placeholderTextColor={MUTED}
           value={q}
           onChangeText={setQ}
@@ -87,15 +135,22 @@ export default function CoachMessagesScreen({ navigation }) {
       <FlatList
         data={data}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 24, flexGrow: data.length ? 0 : 1, justifyContent: data.length ? 'flex-start' : 'center' }}
         ItemSeparatorComponent={() => <View style={styles.sep} />}
         renderItem={renderItem}
+        ListEmptyComponent={
+          loading ? null : (
+            <View style={{ alignItems: 'center', opacity: 0.6 }}>
+              <Ionicons name="chatbubbles-outline" size={48} color={MUTED} />
+              <Text style={{ color: TEXT, marginTop: 12, fontWeight: '600' }}>No conversations yet</Text>
+              <Text style={{ color: MUTED, marginTop: 4, fontSize: 12 }}>Start one from a profile or client list</Text>
+            </View>
+          )
+        }
       />
 
       {/* New message FAB */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.9}>
-        <Ionicons name="create-outline" size={22} color="#0B1220" />
-      </TouchableOpacity>
+  {/* FAB reserved for future new chat UI */}
     </SafeAreaView>
   );
 }
@@ -152,17 +207,7 @@ const styles = StyleSheet.create({
     borderRadius: 11, backgroundColor: ACCENT, alignItems: "center", justifyContent: "center",
   },
   badgeTxt: { color: "#0B1220", fontWeight: "800", fontSize: 12 },
+  time: { color: MUTED, fontSize: 10, marginLeft: 8 },
 
-  fab: {
-    position: "absolute",
-    right: 16, bottom: 24,
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: ACCENT,
-    alignItems: "center", justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 6 },
-  },
+  // fab placeholder removed for core sync phase
 });

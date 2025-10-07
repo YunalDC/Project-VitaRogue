@@ -31,9 +31,13 @@ service cloud.firestore {
     // ---- CHATS ROOT ----
     match /chats/{chatId} {
       // Only participants can read or write the chat document.
-      allow read, update, delete: if isParticipant(resource.data.participants);
-      allow create: if request.auth != null && isParticipant(request.resource.data.participants)
-                    && request.resource.data.participants.size() == 2; // enforce 1:1 chat assumption
+  allow read: if isParticipant(resource.data.participants);
+  allow create: if request.auth != null && isParticipant(request.resource.data.participants)
+        && request.resource.data.participants.size() == 2
+        && validateNewChat(request.resource.data);
+  allow update: if isParticipant(resource.data.participants)
+        && validateChatUpdate(request.resource.data, resource.data);
+  allow delete: if false; // disallow deletes via client (optional hardening)
 
       // Messages subcollection
       match /messages/{messageId} {
@@ -48,6 +52,37 @@ service cloud.firestore {
     // Utility function: check participant membership
     function isParticipant(participants) {
       return request.auth != null && participants != null && participants.hasAny([request.auth.uid]);
+    }
+
+    function hasFields(data, fieldList) {
+      return fieldList.every(f => data.keys().hasAll([f]));
+    }
+
+    function validateLastMessage(msg) {
+      return msg == null || (
+        msg.keys().hasOnly(['text','senderId','timestamp']) &&
+        (msg.text is string) && (msg.senderId is string)
+      );
+    }
+
+    function validateUnread(unread) {
+      return unread is map;
+    }
+
+    function validateParticipants(p) { return p is list && p.size() == 2; }
+
+    function validateNewChat(data) {
+      return validateParticipants(data.participants)
+             && validateUnread(data.unreadCount)
+             && validateLastMessage(data.lastMessage);
+    }
+
+    function validateChatUpdate(newData, oldData) {
+      // Allow server (functions) to add lastReadAt / update counts / lastMessage / updatedAt only.
+      // Participants immutable.
+      return newData.participants == oldData.participants
+             && validateUnread(newData.unreadCount)
+             && validateLastMessage(newData.lastMessage);
     }
   }
 }
