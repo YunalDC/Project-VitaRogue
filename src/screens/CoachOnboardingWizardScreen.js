@@ -16,7 +16,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as DocumentPicker from "expo-document-picker";
 import { Ionicons } from "@expo/vector-icons";
-import { firebaseAuth as auth } from "../lib/firebaseApp";
+import { firebaseAuth as auth, db } from "../lib/firebaseApp";
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 /** ==== API CONFIG (server mounted at /accounts on :4000) ==== */
 const API_HOST = "http://192.168.8.179:4000";
@@ -73,6 +74,8 @@ export default function CoachVerificationScreen({ navigation, route }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [lastDraftSaved, setLastDraftSaved] = useState(null);
 
   // If someone hits this screen without a session, shunt them to SignIn.
   useEffect(() => {
@@ -80,6 +83,50 @@ export default function CoachVerificationScreen({ navigation, route }) {
       navigation.reset({ index: 0, routes: [{ name: "SignIn" }] });
     }
   }, [navigation]);
+
+  // Load existing draft
+  useEffect(() => {
+    (async () => {
+      const user = auth.currentUser; if (!user) return;
+      try {
+        const ref = doc(db, 'coachVerificationDrafts', user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.formData) setFormData(prev => ({ ...prev, ...d.formData }));
+          if (Array.isArray(d.filesMeta)) {
+            // Only keep metadata names; actual file re-selection required for security.
+          }
+          if (d.updatedAt?.toDate) setLastDraftSaved(d.updatedAt.toDate());
+        }
+      } catch (e) {
+        console.warn('[CoachVerify] load draft failed', e);
+      }
+    })();
+  }, []);
+
+  // Debounced autosave of draft (excluding binary file content)
+  useEffect(() => {
+    const user = auth.currentUser; if (!user) return;
+    const h = setTimeout(async () => {
+      try {
+        setDraftSaving(true);
+        const ref = doc(db, 'coachVerificationDrafts', user.uid);
+        const payload = {
+          formData,
+          filesMeta: files.map(f => ({ name: f.name, size: f.size, mimeType: f.mimeType })),
+          updatedAt: serverTimestamp(),
+        };
+        await setDoc(ref, payload, { merge: true });
+        setLastDraftSaved(new Date());
+      } catch (e) {
+        console.warn('[CoachVerify] draft save failed', e);
+      } finally {
+        setDraftSaving(false);
+      }
+    }, 900); // 900ms debounce
+    return () => clearTimeout(h);
+  }, [formData, files]);
 
   const pickDocument = async () => {
     try {
@@ -209,6 +256,14 @@ export default function CoachVerificationScreen({ navigation, route }) {
 
       await xhrUpload({ token: idToken, form });
 
+      // Clear draft on successful submit
+      try {
+        const ref = doc(db, 'coachVerificationDrafts', user.uid);
+        await setDoc(ref, { submittedAt: serverTimestamp(), archived: true }, { merge: true });
+      } catch (e) {
+        console.warn('[CoachVerify] draft archive failed', e);
+      }
+
       // Sign out and go to the standard SignIn screen (not CoachSignIn).
       try {
         await auth.signOut();
@@ -290,6 +345,15 @@ export default function CoachVerificationScreen({ navigation, route }) {
               <Text style={styles.description}>
                 Please provide your credentials and certifications for verification. All submissions will be reviewed by our team.
               </Text>
+              <View style={{ marginTop: 10 }}>
+                {draftSaving ? (
+                  <Text style={{ color: COLORS.muted, fontSize: 12 }}>Saving draft...</Text>
+                ) : lastDraftSaved ? (
+                  <Text style={{ color: COLORS.muted, fontSize: 12 }}>Draft saved {lastDraftSaved.toLocaleTimeString()}</Text>
+                ) : (
+                  <Text style={{ color: COLORS.muted, fontSize: 12 }}>Draft autosave enabled</Text>
+                )}
+              </View>
             </View>
 
             {renderInput("Full Name", "fullName", "Enter your full name as per NIC")}

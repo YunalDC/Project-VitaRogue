@@ -23,6 +23,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { logOut } from "../lib/auth";
 import { setAuthInitialRoute } from "../state/authRoute";
 import { useCoachProfile } from "../hooks/useCoachProfile";
+import { db, firebaseAuth } from '../lib/firebaseApp';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 /* -------------------- THEME -------------------- */
 const COLORS = {
@@ -603,6 +605,33 @@ export default function CoachDashboardScreen({ navigation }) {
     const done = verificationSteps.filter(s => s.done).length;
     return Math.round((done / verificationSteps.length) * 100);
   }, [verificationSteps]);
+
+  // Self-repair /users/{uid} doc to ensure role:'coach' + flag fields present so root navigator doesn't mis-route.
+  useEffect(() => {
+    let running = false;
+    (async () => {
+      if (running) return; running = true;
+      const u = firebaseAuth.currentUser; if (!u) return;
+      try {
+        const userRef = doc(db, 'users', u.uid);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) return; // user doc missing; creation handled elsewhere
+        const data = snap.data() || {};
+        const needs = {};
+        if (data.role !== 'coach') needs.role = 'coach';
+        if (typeof data.coachOnboardingComplete === 'undefined') needs.coachOnboardingComplete = false;
+        if (typeof data.phoneVerified === 'undefined') needs.phoneVerified = false;
+        if (typeof data.coachEmailVerified === 'undefined') needs.coachEmailVerified = false;
+        if (Object.keys(needs).length) {
+          console.log('[CoachDashboard] repairing user doc fields', needs);
+          await setDoc(userRef, needs, { merge: true });
+        }
+      } catch (e) {
+        console.warn('[CoachDashboard] self-repair failed', e);
+      }
+    })();
+    return () => { running = true; };
+  }, [coach]);
 
   const goToVerification = () => {
     // Attempt direct navigation if AuthRoot already current; else set initial and switch.
