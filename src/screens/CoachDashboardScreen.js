@@ -21,8 +21,8 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { logOut } from "../lib/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { db, firebaseAuth } from "../lib/firebaseApp";
+import { setAuthInitialRoute } from "../state/authRoute";
+import { useCoachProfile } from "../hooks/useCoachProfile";
 
 /* -------------------- THEME -------------------- */
 const COLORS = {
@@ -77,17 +77,14 @@ function useResponsive() {
   return { width, height, vw, vh, isXSmall, isSmall, isMedium, isLarge, isTablet, isLandscape, ms, HERO_H };
 }
 
-/* -------------------- MOCK DATA -------------------- */
-// Coach info will be fetched from Firebase
-const defaultCoachInfo = {
-  id: '',
-  name: '',
-  title: 'Coach',
-  avatar: 'https://via.placeholder.com/400',
+/* -------------------- DEFAULT COACH PLACEHOLDER -------------------- */
+const DEFAULT_COACH = {
+  name: "Coach",
+  title: "Personal Trainer",
+  avatar: "https://placehold.co/200x200/png",
   rating: 0,
   experience: 0,
-  specialization: '',
-  verificationStatus: 'unverified'
+  specialization: "--",
 };
 
 const METRICS = {
@@ -565,91 +562,81 @@ export default function CoachDashboardScreen({ navigation }) {
   const { width, isXSmall, isSmall, isTablet, ms, HERO_H } = useResponsive();
 
   const [activeTab, setActiveTab] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [notificationCount, setNotificationCount] = useState(3);
   const [showClientsModal, setShowClientsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [coachInfo, setCoachInfo] = useState(defaultCoachInfo);
 
-  // Fetch coach data when component mounts
-  useEffect(() => {
-    const fetchCoachData = async () => {
+  const { coach } = useCoachProfile();
+  const info = coach ? {
+    name: coach.name || DEFAULT_COACH.name,
+    title: coach.title || coach.roleTitle || DEFAULT_COACH.title,
+    avatar: coach.photoURL || coach.avatar || DEFAULT_COACH.avatar,
+    rating: coach.rating || coach.avgRating || DEFAULT_COACH.rating,
+    experience: coach.experienceYears || coach.experience || DEFAULT_COACH.experience,
+    specialization: coach.specialization || coach.focus || DEFAULT_COACH.specialization,
+  } : DEFAULT_COACH;
+
+  const needsVerification = !!coach && (
+    coach.status === 'pending' ||
+    coach.coachOnboardingComplete === false ||
+    coach.phoneVerified === false ||
+    coach.coachEmailVerified === false
+  );
+
+  // Derive granular verification steps (extensible)
+  const verificationSteps = useMemo(() => {
+    if (!coach) return [];
+    return [
+      { key: 'email', label: 'Email verified', done: coach.coachEmailVerified === true },
+      { key: 'phone', label: 'Phone verified', done: coach.phoneVerified === true },
+      { key: 'profile', label: 'Profile completed', done: coach.coachOnboardingComplete === true },
+      { key: 'status', label: 'Admin approval', done: coach.status === 'approved' },
+    ];
+  }, [coach]);
+
+  const verificationProgressPct = useMemo(() => {
+    if (!verificationSteps.length) return 0;
+    const done = verificationSteps.filter(s => s.done).length;
+    return Math.round((done / verificationSteps.length) * 100);
+  }, [verificationSteps]);
+
+  const goToVerification = () => {
+    // Attempt direct navigation if AuthRoot already current; else set initial and switch.
+    const parent = navigation.getParent();
+    try {
+      setAuthInitialRoute('CoachVerify');
+      const state = parent?.getState?.();
+      console.log('[goToVerification] parent state', JSON.stringify(state));
+      const currentRoot = state?.routes?.[state.index]?.name;
+      if (currentRoot === 'AuthRoot') {
+        console.log('[goToVerification] Already in AuthRoot, navigating to CoachVerify');
+        try { navigation.navigate('CoachVerify'); return; } catch (e2) { console.warn('nav navigate fail', e2); }
+      }
+      // Try navigating into AuthRoot stack without full reset first
       try {
-        setIsLoading(true);
-        const user = firebaseAuth.currentUser;
-        if (!user) {
-          console.warn('No user found in firebaseAuth');
-          setIsLoading(false);
-          return;
-        }
-
-        // Get user document first
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userData = userDoc.exists() ? userDoc.data() : {};
-
-        // Get coach document
-        const coachDoc = await getDoc(doc(db, 'coaches', user.uid));
-        const coachData = coachDoc.exists() ? coachDoc.data() : {};
-        
-        setCoachInfo({
-          id: user.uid,
-          name: coachData.name || userData.displayName || user.displayName || 'Coach',
-          title: coachData.title || userData.title || 'Certified Personal Trainer',
-          avatar: coachData.avatar || userData.photoURL || user.photoURL || defaultCoachInfo.avatar,
-          rating: coachData.rating || 0,
-          experience: coachData.experience || 0,
-          specialization: coachData.specialization || 'Fitness Coach',
-          verificationStatus: coachData.verificationStatus || 'unverified'
-        });
-
-        // If coach document doesn't exist, create it with basic info
-        if (!coachDoc.exists()) {
-          try {
-            await setDoc(doc(db, 'coaches', user.uid), {
-              name: user.displayName || 'Coach',
-              email: user.email,
-              createdAt: serverTimestamp(),
-              lastLoginAt: serverTimestamp(),
-              profileComplete: false
-            }, { merge: true });
-          } catch (error) {
-            console.warn('Error creating initial coach document:', error);
-          }
-        }
-
-      } catch (error) {
-        console.error('Error fetching coach data:', error);
-        Alert.alert(
-          'Error Loading Profile', 
-          'Failed to load your coach profile. Please try again later.',
-          [{ text: 'OK' }]
-        );
-      } finally {
-        setIsLoading(false);
+        parent?.navigate('AuthRoot', { screen: 'CoachVerify' });
+        console.log('[goToVerification] parent.navigate AuthRoot -> CoachVerify attempted');
+        return;
+      } catch (e3) {
+        console.warn('[goToVerification] parent.navigate failed, performing reset', e3);
       }
-    };
-
-    fetchCoachData();
-
-    // Set up auth state listener to refresh data when auth state changes
-    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
-      if (user) {
-        fetchCoachData();
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
+      parent?.reset({ index: 0, routes: [{ name: 'AuthRoot', state: { routes: [{ name: 'CoachVerify' }] } }] });
+    } catch (e) {
+      console.warn('[goToVerification] fallback', e);
+      parent?.reset({ index: 0, routes: [{ name: 'AuthRoot' }] });
+    }
+  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    const name = coachInfo.name.split(" ")[0];
-    if (hour < 12) return `Good morning, ${name}!`;
-    if (hour < 18) return `Good afternoon, ${name}!`;
-    return `Good evening, ${name}!`;
+    const first = (info.name || 'Coach').split(' ')[0];
+    if (hour < 12) return `Good morning, ${first}!`;
+    if (hour < 18) return `Good afternoon, ${first}!`;
+    return `Good evening, ${first}!`;
   };
 
   const showDialog = (title, message) => {
@@ -911,7 +898,7 @@ export default function CoachDashboardScreen({ navigation }) {
       >
         <View style={styles.headerLeft}>
           <Image
-            source={{ uri: coachInfo.avatar }}
+            source={{ uri: info.avatar }}
             style={[
               styles.headerAvatar,
               {
@@ -958,7 +945,7 @@ export default function CoachDashboardScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() => showDialog("Coach Profile", `Navigate to ${COACH_INFO.name} profile settings`)}
+            onPress={() => showDialog("Coach Profile", `Navigate to ${info.name} profile settings`)}
           >
             <Ionicons name="person-outline" size={ms(18)} color="#cbd5e1" />
           </TouchableOpacity>
@@ -996,7 +983,7 @@ export default function CoachDashboardScreen({ navigation }) {
         >
           <View style={styles.coachInfo}>
             <Image
-              source={{ uri: coachInfo.avatar }}
+              source={{ uri: info.avatar }}
               style={[
                 styles.coachAvatar,
                 {
@@ -1007,44 +994,32 @@ export default function CoachDashboardScreen({ navigation }) {
               ]}
             />
             <View style={{ flex: 1, marginLeft: ms(16) }}>
-              <View style={styles.nameVerificationContainer}>
-                <Text style={[styles.coachName, { fontSize: ms(20) }]}>{coachInfo.name}</Text>
-                <TouchableOpacity 
-                  style={[
-                    styles.verificationBadge,
-                    { backgroundColor: coachInfo.verificationStatus === 'verified' ? '#32cd32' : '#ff6b6b' }
-                  ]}
-                  onPress={() => {
-                    if (coachInfo.verificationStatus !== 'verified') {
-                      navigation.navigate('CoachVerification', {
-                        coachId: firebaseAuth.currentUser?.uid
-                      });
-                    }
-                  }}
-                  disabled={coachInfo.verificationStatus === 'verified'}
-                >
-                  <Ionicons
-                    name={coachInfo.verificationStatus === 'verified' ? 'checkmark-circle' : 'close-circle'}
-                    size={ms(16)}
-                    color="#fff"
-                  />
-                  <Text style={styles.verificationText}>
-                    {coachInfo.verificationStatus === 'verified' ? 'Verified' : 'Unverified'}
-                  </Text>
-                </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                <Text style={[styles.coachName, { fontSize: ms(20) }]}>{info.name}</Text>
+                {needsVerification && (
+                  <TouchableOpacity
+                    onPress={goToVerification}
+                    activeOpacity={0.85}
+                    style={[styles.unverifiedBadge, { marginLeft: ms(8), paddingHorizontal: ms(10), paddingVertical: ms(4), borderRadius: ms(14) }]}
+                  >
+                    <Ionicons name="close-circle" size={ms(14)} color={'#fff'} />
+                    <Text style={[styles.unverifiedBadgeText, { fontSize: ms(12), marginLeft: ms(4) }]}>Unverified</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-              <Text style={[styles.coachTitle, { fontSize: ms(14) }]}>{coachInfo.title}</Text>
+              <Text style={[styles.coachTitle, { fontSize: ms(14) }]}>{info.title}</Text>
               <View style={styles.coachStats}>
                 <View style={styles.statItem}>
                   <Ionicons name="star" size={ms(14)} color={COLORS.accent} />
-                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{coachInfo.rating || '0.0'}</Text>
+                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{info.rating}</Text>
                 </View>
                 <View style={styles.statItem}>
                   <Ionicons name="time-outline" size={ms(14)} color={COLORS.muted} />
-                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{coachInfo.experience || '0'}y exp</Text>
+                  <Text style={[styles.statText, { fontSize: ms(12) }]}>{info.experience}y exp</Text>
                 </View>
               </View>
-              <Text style={[styles.coachSpecialization, { fontSize: ms(12) }]}>{coachInfo.specialization}</Text>
+              <Text style={[styles.coachSpecialization, { fontSize: ms(12) }]}>{info.specialization}</Text>
+              {/* Removed large banner; compact pill used instead */}
             </View>
           </View>
         </View>
@@ -1230,31 +1205,7 @@ const styles = StyleSheet.create({
   coachHeader: { backgroundColor: COLORS.card },
   coachInfo: { flexDirection: "row", alignItems: "center" },
   coachAvatar: { backgroundColor: COLORS.card2 },
-  nameVerificationContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  coachName: { 
-    color: COLORS.text, 
-    fontWeight: "800",
-    flex: 1,
-  },
-  verificationBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  verificationText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-    marginLeft: 4,
-  },
+  coachName: { color: COLORS.text, fontWeight: "800" },
   coachTitle: { color: COLORS.muted, marginTop: 4 },
   coachStats: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 },
   statItem: { flexDirection: "row", alignItems: "center", gap: 4 },
@@ -1341,4 +1292,8 @@ const styles = StyleSheet.create({
   loadingContent: { alignItems: "center", justifyContent: "center" },
   loadingSpinner: { borderColor: COLORS.border, borderTopColor: COLORS.primary },
   loadingText: { color: COLORS.muted, fontWeight: "500" },
+  verifyButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary + '20', borderWidth: 1, borderColor: COLORS.primary },
+  verifyButtonText: { color: COLORS.primary, fontWeight: '700' },
+  unverifiedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.danger, paddingHorizontal: 10, paddingVertical: 4 },
+  unverifiedBadgeText: { color: '#fff', fontWeight: '700' },
 });

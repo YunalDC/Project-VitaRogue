@@ -7,7 +7,8 @@ import {
   signOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { firebaseAuth } from "./firebaseApp";
+import { firebaseAuth, db } from "./firebaseApp";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 // Pretty error messages
 const niceError = (e) => {
@@ -27,6 +28,27 @@ export async function signUp(email, password) {
   try {
     const cred = await createUserWithEmailAndPassword(firebaseAuth, email, password);
     try { await sendEmailVerification(cred.user); } catch {}
+
+    // Create an initial user profile doc (id = uid) so first sign-in + hooks don't hit missing doc
+    try {
+      const uid = cred.user.uid;
+      const userRef = doc(db, "users", uid);
+      await setDoc(userRef, {
+        email: cred.user.email || null,
+        username: (cred.user.email || "").split("@")[0] || "user",
+        onboardingComplete: false,
+  role: 'user',
+        createdAt: serverTimestamp(),
+        public: true,
+        online: true,
+        lastSeen: serverTimestamp(),
+        profile: {},
+      }, { merge: true });
+    } catch (e) {
+      // Non-fatal; continue. Log for troubleshooting.
+      console.warn("Failed to create initial user doc", e);
+    }
+
     return cred.user;
   } catch (e) {
     const err = new Error(niceError(e));
@@ -59,6 +81,26 @@ export async function resetPassword(email) {
 
 export async function logOut() {
   return signOut(firebaseAuth); // clears persisted session
+}
+
+// --- NEW: tiny helpers you'll use with your Django endpoints ---
+
+/** Returns the currently signed-in Firebase user (or null). */
+export function currentUser() {
+  return firebaseAuth.currentUser ?? null;
+}
+
+/** Throws if no user is signed in; otherwise returns the user. */
+export function requireUser() {
+  const u = firebaseAuth.currentUser;
+  if (!u) throw new Error("Not signed in.");
+  return u;
+}
+
+export async function getFirebaseIdTokenIfLoggedIn(forceRefresh = false) {
+  const u = firebaseAuth.currentUser;
+  if (!u) return null;
+  return await u.getIdToken(forceRefresh);
 }
 
 // Optional: subscribe from anywhere

@@ -1,31 +1,31 @@
+// src/screens/SignInScreen.js
 import React, { useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  Image,
-  TextInput,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  ScrollView,
-  Dimensions,
-  Keyboard,
-  TouchableWithoutFeedback
+  View, Text, Image, TextInput, TouchableOpacity, KeyboardAvoidingView,
+  Platform, Alert, ScrollView, Dimensions, SafeAreaView, Keyboard, TouchableWithoutFeedback
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons as Icon } from "@expo/vector-icons";
+import Icon from "react-native-vector-icons/Ionicons";
+
 import { signIn } from "../lib/auth";
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../lib/firebaseApp";
-import { setAuthInitialRoute } from "../state/authRoute";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
+const IS_SMALL = height < 700;
+
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
-const LOGO_SIZE = Math.min(160, Math.max(100, Math.round(width * 0.35)));
+const MUTED = "#8e8e93";
+
+/** Bigger logo */
+const LOGO_SIZE = Math.min(180, Math.max(110, Math.round(width * 0.34)));
+const CONTENT_MAX_W = Math.min(440, width - 32);
+
+/** Smaller buttons (uniform across CTAs) */
+const BTN_H = IS_SMALL ? 44 : 46;          // ↓ reduced height
+const BTN_TEXT = IS_SMALL ? 14.5 : 15;     // slightly smaller label
 
 export default function SignInScreen({ navigation }) {
   const [email, setEmail] = useState("");
@@ -34,17 +34,15 @@ export default function SignInScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-
   const [kbVisible, setKbVisible] = useState(false);
+
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => setKbVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKbVisible(false));
     return () => { show.remove(); hide.remove(); };
   }, []);
 
-  useEffect(() => {
-    setAuthInitialRoute("SignIn");
-  }, []);
+  const makeUsername = (mail) => (mail || "").split("@")[0] || "user";
 
   const onSignIn = async () => {
     if (!email.trim() || !pw.trim()) {
@@ -52,26 +50,89 @@ export default function SignInScreen({ navigation }) {
     }
     try {
       setLoading(true);
+      console.log("[SIGNIN] Starting sign-in flow for", email.trim());
       const user = await signIn(email.trim(), pw);
+      const uid = user.uid;
+      console.log("[SIGNIN] Auth success uid=", uid);
 
-      // ensure user doc and decide route
-      const ref = doc(db, "users", user.uid);
-      const snap = await getDoc(ref);
+      // Step 1: fetch user doc
+      let profileRef = doc(db, "users", uid);
+      let profileSnap;
+      try {
+        profileSnap = await getDoc(profileRef);
+        console.log("[SIGNIN] users doc exists?", profileSnap.exists());
+      } catch (e) {
+        console.warn("[SIGNIN][ERR] getDoc users", e.code, e.message);
+        throw e; // rethrow to outer catch
+      }
+
+      // Step 2: if not found, check coaches
+      if (!profileSnap.exists()) {
+        try {
+          const coachRef = doc(db, "coaches", uid);
+          const coachSnap = await getDoc(coachRef);
+            console.log("[SIGNIN] coach doc exists?", coachSnap.exists());
+          if (coachSnap.exists()) {
+            profileRef = coachRef;
+            profileSnap = coachSnap;
+          }
+        } catch (e) {
+          console.warn("[SIGNIN][ERR] getDoc coaches", e.code, e.message);
+          throw e;
+        }
+      }
+
+      // Step 3: create / update profile
+      try {
+        const base = {
+          role: 'user',
+          public: true,
+          online: true,
+          lastSeen: serverTimestamp(),
+        };
+        if (!profileSnap.exists()) {
+          console.log("[SIGNIN] Creating base users doc.");
+          await setDoc(profileRef, {
+            ...base,
+            username: makeUsername(user.email),
+            onboardingComplete: false,
+            createdAt: serverTimestamp(),
+            email: user.email || null,
+          }, { merge: true });
+        } else {
+          console.log("[SIGNIN] Updating lastSeen + presence.");
+          await setDoc(profileRef, {
+            ...base,
+            username: profileSnap.data()?.username || makeUsername(user.email),
+          }, { merge: true });
+        }
+      } catch (e) {
+        console.warn("[SIGNIN][ERR] setDoc profile", e.code, e.message);
+        throw e;
+      }
+
+      // Step 4: re-fetch
       let onboardingComplete = false;
-      if (!snap.exists()) {
-        await setDoc(ref, { onboardingComplete: false, createdAt: serverTimestamp() });
-      } else {
-        onboardingComplete = !!snap.data()?.onboardingComplete;
+      try {
+        const fresh = await getDoc(profileRef);
+        onboardingComplete = !!(fresh.data() || {}).onboardingComplete;
+        console.log("[SIGNIN] onboardingComplete=", onboardingComplete);
+      } catch (e) {
+        console.warn("[SIGNIN][ERR] final getDoc", e.code, e.message);
+        throw e;
       }
 
-      if (!onboardingComplete) {
-        return;
-      }
-
-      // Navigation is handled by the auth state listener once Firebase updates.
-      return;
+      // Step 5: navigation
+      // NOTE: App.js owns root routing via AuthRoot / OnboardingRoot / MainRoot.
+      // Here we simply navigate within the auth stack; root reset is handled by listener.
+  // Root navigation will re-route automatically based on user doc listener in App.js (route state logic).
+  // No manual navigation needed here.
     } catch (e) {
-      Alert.alert("Sign In Failed", e.message);
+      let msg = e?.message || String(e);
+      if (e?.code === 'permission-denied') {
+        msg = 'Permission denied accessing Firestore profile document. Ensure rules deployed & that your user doc exists.';
+      }
+      Alert.alert("Sign In Failed", msg);
     } finally {
       setLoading(false);
     }
@@ -85,12 +146,7 @@ export default function SignInScreen({ navigation }) {
       showsVerticalScrollIndicator={false}
       bounces={false}
     >
-      <View
-        style={[
-          styles.centerWrap,
-          Platform.OS === "android" && (kbVisible ? styles.topAligned : styles.centerAligned),
-        ]}
-      >
+      <View style={[styles.centerWrap, Platform.OS === "android" && (kbVisible ? styles.topAligned : styles.centerAligned)]}>
         <View style={styles.header}>
           <Image
             source={require("../../assets/logo.png")}
@@ -101,12 +157,12 @@ export default function SignInScreen({ navigation }) {
           <Text style={styles.subtitle}>Ready to crush your goals?</Text>
         </View>
 
-        <View style={styles.formContainer}>
+        <View style={styles.formCard}>
           {/* Email */}
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Email Address</Text>
             <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
-              <Icon name="mail-outline" size={20} color={emailFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
+              <Icon name="mail-outline" size={20} color={emailFocused ? ACCENT : MUTED} style={styles.inputIcon}/>
               <TextInput
                 value={email}
                 onChangeText={setEmail}
@@ -115,7 +171,7 @@ export default function SignInScreen({ navigation }) {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 placeholder="your.email@example.com"
-                placeholderTextColor="#8e8e93"
+                placeholderTextColor={MUTED}
                 style={styles.textInput}
                 autoComplete="email"
                 returnKeyType="next"
@@ -127,7 +183,7 @@ export default function SignInScreen({ navigation }) {
           <View style={styles.inputContainer}>
             <Text style={styles.label}>Password</Text>
             <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
-              <Icon name="lock-closed-outline" size={20} color={passwordFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
+              <Icon name="lock-closed-outline" size={20} color={passwordFocused ? ACCENT : MUTED} style={styles.inputIcon}/>
               <TextInput
                 value={pw}
                 onChangeText={setPw}
@@ -135,56 +191,54 @@ export default function SignInScreen({ navigation }) {
                 onBlur={() => setPasswordFocused(false)}
                 secureTextEntry={!showPw}
                 placeholder="Enter your password"
-                placeholderTextColor="#8e8e93"
+                placeholderTextColor={MUTED}
                 style={styles.textInput}
                 autoComplete="password"
                 returnKeyType="go"
                 onSubmitEditing={onSignIn}
               />
               <TouchableOpacity onPress={() => setShowPw(!showPw)} style={styles.eyeButton} activeOpacity={0.7}>
-                <Icon name={showPw ? "eye-outline" : "eye-off-outline"} size={20} color="#8e8e93" />
+                <Icon name={showPw ? "eye-outline" : "eye-off-outline"} size={20} color={MUTED}/>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Forgot */}
-          <Text
-            style={[styles.linkText, { textAlign: "center", marginVertical: 8 }]}
-            onPress={() => navigation.navigate("ForgotPassword")}
-          >
+          <Text style={[styles.linkText, { textAlign: "center", marginVertical: 8 }]}
+                onPress={() => navigation.navigate("ForgotPassword")}>
             Forgot Password?
           </Text>
 
-          {/* Sign In */}
-          <TouchableOpacity onPress={onSignIn} style={[styles.signInButton, loading && styles.buttonDisabled]} disabled={loading} activeOpacity={0.8}>
+          {/* Smaller, uniform buttons */}
+          <TouchableOpacity onPress={onSignIn} style={[styles.fullButton, loading && styles.buttonDisabled]} disabled={loading} activeOpacity={0.85}>
             <LinearGradient
               colors={loading ? ["#666", "#666"] : [ACCENT, ACCENT_DARK]}
-              style={styles.buttonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+              style={[styles.buttonGradient, { height: BTN_H }]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             >
-              <Text style={styles.buttonText}>{loading ? "Signing In..." : "Sign In"}</Text>
+              <Text style={[styles.buttonText, { fontSize: BTN_TEXT }]}>{loading ? "Signing In..." : "Sign In"}</Text>
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Divider */}
           <View style={styles.dividerContainer}>
-            <View style={styles.divider} />
-            <Text style={styles.dividerText}>or</Text>
-            <View style={styles.divider} />
+            <View style={styles.divider} /><Text style={styles.dividerText}>or</Text><View style={styles.divider} />
           </View>
 
-          {/* Social (placeholders) */}
-          <View style={styles.socialContainer}>
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-              <Icon name="logo-google" size={20} color="#db4437" />
-              <Text style={styles.socialButtonText}>Google</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.socialButton} activeOpacity={0.7}>
-              <Icon name="logo-apple" size={20} color="#000" />
-              <Text style={styles.socialButtonText}>Apple</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={[styles.altButton, { height: BTN_H }]} activeOpacity={0.85}>
+            <Icon name="logo-google" size={16} color="#db4437" />
+            <Text style={[styles.altButtonText, { fontSize: BTN_TEXT }]}>Continue with Google</Text>
+          </TouchableOpacity>
+
+         <TouchableOpacity
+         onPress={() => navigation.navigate("CoachSignIn")}
+         style={[styles.outlineButton, { height: BTN_H }]}
+         activeOpacity={0.85}
+         >
+          
+          <Icon name="person-outline" size={16} color={ACCENT} style={{ marginRight: 8 }} />
+          <Text style={[styles.outlineButtonText, { fontSize: BTN_TEXT }]}>
+            Login as Coach
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Footer */}
@@ -196,9 +250,8 @@ export default function SignInScreen({ navigation }) {
             </TouchableOpacity>
           </View>
 
-          {/* Goes to the dedicated coach sign-in */}
-          <TouchableOpacity onPress={() => navigation.navigate("CoachSignIn")} activeOpacity={0.7} style={{ marginTop: 6 }}>
-            <Text style={styles.linkText}>Join as a coach</Text>
+          <TouchableOpacity onPress={() => navigation.navigate("VerifyPhone")}>
+            <Text style={{ color: "#10B981", fontWeight: "600" }}>Join as a coach</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -206,16 +259,16 @@ export default function SignInScreen({ navigation }) {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={{ flex: 1 }}>
       <StatusBar style="light" />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <LinearGradient colors={["#1a1a2e", "#16213e", "#0f3460"]} style={styles.gradient}>
+        <LinearGradient colors={["#1a1a2e", "#16213e", "#0f3460"]} style={{ flex: 1 }}>
           {Platform.OS === "ios" ? (
-            <KeyboardAvoidingView style={styles.keyboardView} behavior="padding">
+            <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
               {Content}
             </KeyboardAvoidingView>
           ) : (
-            <View style={styles.keyboardView}>{Content}</View>
+            <View style={{ flex: 1 }}>{Content}</View>
           )}
         </LinearGradient>
       </TouchableWithoutFeedback>
@@ -224,56 +277,99 @@ export default function SignInScreen({ navigation }) {
 }
 
 const styles = {
-  container: { flex: 1 },
-  gradient: { flex: 1 },
-  keyboardView: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingHorizontal: 20, paddingVertical: 20 },
-  centerWrap: { flexGrow: 1, alignItems: "stretch" },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: IS_SMALL ? 10 : 20,
+    paddingBottom: IS_SMALL ? 10 : 20,
+  },
+  centerWrap: { flexGrow: 1, alignItems: "center" },
   centerAligned: { justifyContent: "center" },
   topAligned: { justifyContent: "flex-start" },
-  header: { alignItems: "center", marginBottom: 20 },
-  logoImage: { marginBottom: 10 },
-  title: { fontSize: 30, fontWeight: "bold", color: "white", marginBottom: 4, textAlign: "center" },
-  subtitle: { fontSize: 15, color: "#a8a8a8", textAlign: "center", fontWeight: "400", marginBottom: 12 },
-  formContainer: { width: "100%", alignSelf: "center" },
-  inputContainer: { marginBottom: 12 },
-  label: { fontSize: 13, fontWeight: "600", color: "#ffffff", marginBottom: 6, marginLeft: 4 },
+
+  header: { alignItems: "center", marginBottom: IS_SMALL ? 14 : 20, width: "100%" },
+  logoImage: { marginBottom: IS_SMALL ? 8 : 10 },
+  title: { fontSize: IS_SMALL ? 26 : 30, fontWeight: "bold", color: "white", marginBottom: 4, textAlign: "center" },
+  subtitle: { fontSize: IS_SMALL ? 14 : 15, color: "#a8a8a8", textAlign: "center", fontWeight: "400", marginBottom: IS_SMALL ? 10 : 12 },
+
+  formCard: {
+    width: "100%",
+    maxWidth: CONTENT_MAX_W,
+    alignSelf: "center",
+  },
+
+  inputContainer: { marginBottom: IS_SMALL ? 10 : 12 },
+  label: { fontSize: 13, fontWeight: "600", color: "#fff", marginBottom: 6, marginLeft: 4 },
   inputWrapper: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.10)", borderRadius: 14,
-    borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.18)", paddingHorizontal: 14, height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 14,
+    height: IS_SMALL ? 46 : 48, // slightly reduced input height to match smaller CTAs
   },
-  inputWrapperFocused: {
-    borderColor: ACCENT, backgroundColor: "rgba(255, 255, 255, 0.14)",
-    ...Platform.select({
-      ios: { shadowColor: ACCENT, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 6 },
-      android: { elevation: 0 },
-    }),
-  },
+  inputWrapperFocused: { borderColor: ACCENT, backgroundColor: "rgba(255,255,255,0.14)" },
   inputIcon: { marginRight: 10 },
-  textInput: { flex: 1, fontSize: 16, color: "white", fontWeight: "400" },
+  textInput: { flex: 1, fontSize: 16, color: "#fff", fontWeight: "400" },
   eyeButton: { padding: 4, marginLeft: 6 },
-  linkText: { color: ACCENT, fontSize: 14, fontWeight: "bold", textDecorationLine: "underline", textAlign: "center" },
-  signInButton: {
-    borderRadius: 14, overflow: "hidden", marginBottom: 14, alignSelf: "center", width: "100%",
-    ...Platform.select({
-      ios: { shadowColor: ACCENT, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.22, shadowRadius: 12 },
-      android: { elevation: 0 },
-    }),
+
+  linkText: { color: ACCENT, fontSize: 14, fontWeight: "bold", textDecorationLine: "underline" },
+
+  // Full-width CTAs (smaller)
+  fullButton: {
+    width: "100%",
+    alignSelf: "center",
+    borderRadius: 12,
+    overflow: "hidden",
+    marginTop: 2,
+    marginBottom: 12,
   },
-  buttonDisabled: { shadowOpacity: 0, elevation: 0 },
-  buttonGradient: { paddingVertical: 14, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minHeight: 52 },
-  buttonText: { color: "white", fontSize: 16, fontWeight: "bold" },
-  dividerContainer: { flexDirection: "row", alignItems: "center", marginVertical: 14 },
-  divider: { flex: 1, height: 1, backgroundColor: "rgba(255, 255, 255, 0.2)" },
-  dividerText: { color: "#8e8e93", fontSize: 14, marginHorizontal: 12, fontWeight: "500" },
-  socialContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 14 },
-  socialButton: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255, 255, 255, 0.9)", borderRadius: 12, paddingVertical: 12, marginHorizontal: 6,
+  buttonDisabled: { opacity: 0.7 },
+  buttonGradient: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
   },
-  socialButtonText: { color: "#1a1a1a", fontSize: 14, fontWeight: "600", marginLeft: 8 },
-  footerBlock: { alignItems: "center", marginTop: 10, marginBottom: 6 },
+  buttonText: { color: "white", fontWeight: "700" },
+
+  dividerContainer: { flexDirection: "row", alignItems: "center", marginVertical: IS_SMALL ? 10 : 12 },
+  divider: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+  dividerText: { color: MUTED, fontSize: 13.5, marginHorizontal: 12, fontWeight: "500" },
+
+  // Google (solid light)
+  altButton: {
+    width: "100%",
+    alignSelf: "center",
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: IS_SMALL ? 8 : 10,
+    paddingHorizontal: 12,
+  },
+  altButtonText: { color: "#1a1a1a", fontWeight: "700", marginLeft: 8 },
+
+  // Coach (outline accent)
+  outlineButton: {
+    width: "100%",
+    alignSelf: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(52,211,153,0.35)",
+    backgroundColor: "rgba(52,211,153,0.10)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: IS_SMALL ? 10 : 12,
+    paddingHorizontal: 12,
+  },
+  outlineButtonText: { color: ACCENT, fontWeight: "800" },
+
+  footerBlock: { alignItems: "center", marginTop: IS_SMALL ? 8 : 10, marginBottom: 6, width: "100%" },
   footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center" },
   footerText: { color: "#a8a8a8", fontSize: 14 },
 };

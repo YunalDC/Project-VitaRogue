@@ -1,18 +1,53 @@
-rules_version='2'
+rules_version = '2';
+
+// Hardened Firestore security rules (least-privilege baseline)
+// Adjust as your data model evolves. These remove the blanket open rule that was expiring.
+// Key collections currently referenced in code: users, coaches, chats, chats/{chatId}/messages, (weights subcollection under users)
+// Principle: A user may fully manage ONLY their own user document (same UID) and its direct subcollections (e.g., weights).
+// Coaches follow same rule under coaches collection (doc id = auth.uid). Public readable coach listing allowed for discovery.
+// Chats are readable/writable only to participants listed in participants[] array.
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2025, 10, 8);
+
+    // ---- USERS ----
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Example subcollections (e.g., weights, preferences). Inherit same owner rule.
+      match /{sub=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ---- COACHES ----
+    match /coaches/{coachId} {
+      // Anyone may read a coach profile (public marketplace). Limit fields in document to non-sensitive info.
+      allow read: if true;
+      // Only the coach themselves can create/update their doc.
+      allow create, update, delete: if request.auth != null && request.auth.uid == coachId;
+    }
+
+    // ---- CHATS ROOT ----
+    match /chats/{chatId} {
+      // Only participants can read or write the chat document.
+      allow read, update, delete: if isParticipant(resource.data.participants);
+      allow create: if request.auth != null && isParticipant(request.resource.data.participants)
+                    && request.resource.data.participants.size() == 2; // enforce 1:1 chat assumption
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read, create: if isParticipant(get(/databases/$(database)/documents/chats/$(chatId)).data.participants);
+        // No direct update/delete of messages for now (immutability); adjust if editing needed.
+      }
+    }
+
+    // ---- FUNCTIONS ----
+    // Add future secured collections here (e.g., admin, analytics) with explicit rules.
+
+    // Utility function: check participant membership
+    function isParticipant(participants) {
+      return request.auth != null && participants != null && participants.hasAny([request.auth.uid]);
     }
   }
 }

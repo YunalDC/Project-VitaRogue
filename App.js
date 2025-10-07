@@ -1,25 +1,31 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { ActivityIndicator, View, StatusBar, Platform } from "react-native";
-import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+// App.js
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Platform, StatusBar, View } from "react-native";
+import {
+  NavigationContainer,
+  DefaultTheme,
+  createNavigationContainerRef,
+} from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { firebaseAuth, db } from "./src/lib/firebaseApp";
-import { getAuthInitialRoute, subscribeAuthInitialRoute } from "./src/state/authRoute";
 
+/* --- Auth (user) --- */
 import SignInScreen from "./src/screens/SignInScreen";
 import SignUpScreen from "./src/screens/SignUpScreen";
 import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
 
-// Coach flow screens
+/* --- Coach Auth & setup --- */
+import VerifyPhoneScreen from "./src/screens/VerifyPhoneScreen";
 import CoachSignInScreen from "./src/screens/CoachSignInScreen";
 import CoachSignUpScreen from "./src/screens/CoachSignUpScreen";
 import CoachEmailVerification from "./src/screens/CoachEmailVerification";
-import CoachDashboardScreen from "./src/screens/CoachDashboardScreen";
-import UpdateCoachProfileScreen from "./src/screens/UpdateCoachProfileScreen";
-import CoachVerificationScreen from "./src/screens/CoachVerificationScreen";
+import CoachVerificationScreen from "./src/screens/CoachOnboardingWizardScreen";
 
+/* --- Coach app --- */
+import CoachDashboardScreen from "./src/screens/CoachDashboardScreen";
 import CoachClientsScreen from "./src/screens/CoachClientsScreen";
 import CoachClientProfile from "./src/screens/CoachClientProfile";
 import CoachClientMessaging from "./src/screens/CoachClientMessaging";
@@ -28,7 +34,7 @@ import WorkoutPlanBuilderScreen from "./src/screens/WorkoutPlanBuilderScreen";
 import NutritionPlanBuilderScreen from "./src/screens/NutritionPlanBuilderScreen";
 import UpdateCoachClientProfile from "./src/screens/UpdateCoachClientProfile";
 
-// User flow screens
+/* --- User app --- */
 import Onboarding from "./src/screens/OnboardingWizard";
 import HomeScreen from "./src/screens/HomeScreen";
 import GymDiscoveryScreen from "./src/screens/GymDiscoveryScreen";
@@ -52,24 +58,25 @@ import WorkoutsScreen from "./src/screens/WorkoutsScreen";
 import SleepScreen from "./src/screens/SleepScreen";
 import ExerciseDetailScreen from "./src/screens/ExerciseDetailScreen";
 import ArticleDetailScreen from "./src/screens/ArticleDetailScreen";
-import MoreScreen from "./src/screens/More";
 
-// Settings sub-screens
-import AccountSettings from "./src/screens/settings/AccountSettings";
-import NotificationSettings from "./src/screens/settings/NotificationSettings";
-import ProfileGoalsSettings from "./src/screens/settings/ProfileGoalsSettings";
-import NutritionSettings from "./src/screens/settings/NutritionSettings";
-import UnitsDisplaySettings from "./src/screens/settings/UnitsDisplaySettings";
-import PrivacyDataSettings from "./src/screens/settings/PrivacyDataSettings";
-import SupportSettings from "./src/screens/settings/SupportSettings";
-import AboutSettings from "./src/screens/settings/AboutSettings";
+/* ─────────────────────────────────────────────────────────── */
 
 const Stack = createNativeStackNavigator();
+const Root = createNativeStackNavigator();
+const navigationRef = createNavigationContainerRef();
 
+/* Loading */
 function LoadingScreen() {
   return (
     <SafeAreaProvider>
-      <View style={{ flex: 1, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "#0b1220",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <StatusBar barStyle="light-content" backgroundColor="#0b1220" />
         <ActivityIndicator color="#10B981" size="large" />
       </View>
@@ -77,7 +84,8 @@ function LoadingScreen() {
   );
 }
 
-function AuthStack({ initialRouteName }) {
+/* Auth stack */
+function AuthStack({ initialRouteName = "SignIn" }) {
   return (
     <Stack.Navigator
       initialRouteName={initialRouteName}
@@ -87,26 +95,33 @@ function AuthStack({ initialRouteName }) {
         animationDuration: 200,
       }}
     >
+      {/* User auth */}
       <Stack.Screen name="SignIn" component={SignInScreen} />
       <Stack.Screen name="SignUp" component={SignUpScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
 
-      {/* Coach auth routes */}
+      {/* Coach pre-auth / wizard */}
+      <Stack.Screen name="VerifyPhone" component={VerifyPhoneScreen} />
       <Stack.Screen name="CoachSignIn" component={CoachSignInScreen} />
       <Stack.Screen name="CoachSignUp" component={CoachSignUpScreen} />
+      <Stack.Screen name="CoachVerify" component={CoachVerificationScreen} />
       <Stack.Screen name="CoachEmail" component={CoachEmailVerification} />
     </Stack.Navigator>
   );
 }
 
+/* Onboarding */
 function OnboardingStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}>
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}
+    >
       <Stack.Screen name="Onboarding" component={Onboarding} />
     </Stack.Navigator>
   );
 }
 
+/* User app */
 function MainStack() {
   return (
     <Stack.Navigator
@@ -118,18 +133,17 @@ function MainStack() {
     >
       <Stack.Screen name="Home" component={HomeScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} />
-      <Stack.Screen name="AccountSettings" component={AccountSettings} />
-      <Stack.Screen name="NotificationSettings" component={NotificationSettings} />
-      <Stack.Screen name="ProfileGoalsSettings" component={ProfileGoalsSettings} />
-      <Stack.Screen name="NutritionSettings" component={NutritionSettings} />
-      <Stack.Screen name="UnitsDisplaySettings" component={UnitsDisplaySettings} />
-      <Stack.Screen name="PrivacyDataSettings" component={PrivacyDataSettings} />
-      <Stack.Screen name="SupportSettings" component={SupportSettings} />
-      <Stack.Screen name="AboutSettings" component={AboutSettings} />
-
-      <Stack.Screen name="GymDiscovery" component={GymDiscoveryScreen} options={{ animation: "slide_from_bottom" }} />
+      <Stack.Screen
+        name="GymDiscovery"
+        component={GymDiscoveryScreen}
+        options={{ animation: "slide_from_bottom" }}
+      />
       <Stack.Screen name="CoachMarket" component={CoachMarketPlaceScreen} />
-      <Stack.Screen name="FoodScanning" component={FoodScanningScreen} options={{ headerShown: false, gestureEnabled: false }} />
+      <Stack.Screen
+        name="FoodScanning"
+        component={FoodScanningScreen}
+        options={{ headerShown: false, gestureEnabled: false }}
+      />
       <Stack.Screen name="FoodConfirmation" component={FoodConfirmationScreen} />
       <Stack.Screen name="FoodDetails" component={FoodDetailsScreen} />
       <Stack.Screen name="ExerciseRecommendations" component={ExerciseRecommendationsScreen} />
@@ -139,7 +153,7 @@ function MainStack() {
       <Stack.Screen name="CoachesListScreen" component={CoachesListScreen} />
       <Stack.Screen name="BMI" component={BMIScreen} />
       <Stack.Screen name="HealthyDishes" component={HealthyDishesScreen} />
-      <Stack.Screen name="More" component={MoreScreen} />
+      <Stack.Screen name="More" component={SettingsScreen} />
       <Stack.Screen
         name="Discover"
         component={DiscoverScreen}
@@ -222,9 +236,12 @@ function MainStack() {
   );
 }
 
-function CoachStack({ coachProfileComplete, coachProfile }) {
+/* Coach app */
+function CoachStack() {
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}>
+    <Stack.Navigator
+      screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}
+    >
       <Stack.Screen name="CoachDashboard" component={CoachDashboardScreen} />
       <Stack.Screen name="CoachClients" component={CoachClientsScreen} />
       <Stack.Screen name="CoachClientProfile" component={CoachClientProfile} />
@@ -233,267 +250,160 @@ function CoachStack({ coachProfileComplete, coachProfile }) {
       <Stack.Screen name="WorkoutPlanBuilder" component={WorkoutPlanBuilderScreen} />
       <Stack.Screen name="NutritionPlanBuilder" component={NutritionPlanBuilderScreen} />
       <Stack.Screen name="UpdateCoachClientProfile" component={UpdateCoachClientProfile} />
-      <Stack.Screen 
-        name="CoachVerification" 
-        component={CoachVerificationScreen}
-        options={{
-          headerShown: true,
-          title: "Coach Verification",
-          headerStyle: { backgroundColor: "#0B1220" },
-          headerTintColor: "#e5e7eb",
-          headerTitleStyle: { fontWeight: "bold" },
-        }}
-      />
       <Stack.Screen name="CoachSettings" component={SettingsScreen} />
-      <Stack.Screen name="UpdateCoachProfile" component={UpdateCoachProfileScreen} />
     </Stack.Navigator>
   );
 }
 
+/* Root navigator that is ALWAYS mounted */
+function RootNavigator({ authInitial = "SignIn" }) {
+  return (
+    <Root.Navigator screenOptions={{ headerShown: false }}>
+      <Root.Screen
+        name="AuthRoot"
+        children={() => <AuthStack initialRouteName={authInitial} />}
+      />
+      <Root.Screen name="OnboardingRoot" component={OnboardingStack} />
+      <Root.Screen name="MainRoot" component={MainStack} />
+      <Root.Screen name="CoachRoot" component={CoachStack} />
+    </Root.Navigator>
+  );
+}
+
+/* Root */
 export default function App() {
   const [booting, setBooting] = useState(true);
-  const [route, setRoute] = useState(null);
-  const [authInitialRouteState, setAuthInitialRouteState] = useState(getAuthInitialRoute());
-  const [coachProfileComplete, setCoachProfileComplete] = useState(false);
+  const [route, setRoute] = useState(null); // "auth" | "onboarding" | "main" | "coach"
   const [coachProfile, setCoachProfile] = useState(null);
+  const [authGateTarget, setAuthGateTarget] = useState("SignIn");
+  const [navReady, setNavReady] = useState(false);
 
   const navTheme = useMemo(
-    () => ({
-      ...DefaultTheme,
-      colors: { ...DefaultTheme.colors, background: "#0b1220" },
-    }),
+    () => ({ ...DefaultTheme, colors: { ...DefaultTheme.colors, background: "#0b1220" } }),
     []
   );
 
-  useEffect(() => subscribeAuthInitialRoute(setAuthInitialRouteState), []);
-
   useEffect(() => {
-    let unsubscribeUserDoc;
-    let unsubscribeCoachDoc;
-    let userRef;
-    let coachRef;
-    let latestUserData = null;
-    let latestCoachData = null;
-    let applyQueue = Promise.resolve();
-
-    const qualifiesCoachAccount = (userData = {}, coachData = {}) => {
-      if (userData.coachAccountStatus === "active") return true;
-      if (userData.role !== "coach") return false;
-      if (!coachData) return false;
-      if (coachData.approved === true || coachData.status === "approved") return true;
-      if (coachData.profileComplete === true) return true;
-      if (typeof coachData.name === "string" && coachData.name.trim().length > 0) return true;
-      return false;
-    };
-
-    const detachCoachListener = () => {
-      if (typeof unsubscribeCoachDoc === "function") {
-        unsubscribeCoachDoc();
-        unsubscribeCoachDoc = undefined;
-      }
-    };
-
-    const scheduleApply = (data, options = {}) => {
-      applyQueue = applyQueue
-        .then(() => applyData(data, options))
-        .catch((error) => console.warn("Failed to apply auth state", error));
-      return applyQueue;
-    };
-
-    function ensureCoachListener() {
-      if (!coachRef || unsubscribeCoachDoc) return;
-      unsubscribeCoachDoc = onSnapshot(coachRef, (docSnap) => {
-        const coachPayload = docSnap.data() || null;
-        latestCoachData = coachPayload;
-        setCoachProfile(coachPayload);
-        if (latestUserData) {
-          scheduleApply(latestUserData, { skipCoachFetch: true, coachDataOverride: coachPayload });
-        }
-      });
-    }
-
-    async function applyData(incomingData = {}, options = {}) {
-      if (!userRef) return;
-      let data = incomingData || {};
-      latestUserData = data;
-
-      const { skipCoachFetch = false, coachDataOverride } = options;
-
-      let coachData = coachDataOverride ?? latestCoachData ?? null;
-      let allowCoach = false;
-
-      if (data.role === "coach" || data.coachAccountStatus === "active") {
-        if (!coachRef) return;
-        if (!skipCoachFetch || !coachData) {
-          const coachSnap = await getDoc(coachRef);
-          coachData = coachSnap.exists() ? coachSnap.data() : null;
-          latestCoachData = coachData;
-        }
-
-        if (qualifiesCoachAccount(data, coachData)) {
-          allowCoach = true;
-          if (data.coachAccountStatus !== "active") {
-            await setDoc(userRef, { coachAccountStatus: "active" }, { merge: true });
-            data = { ...data, coachAccountStatus: "active" };
-          }
-          ensureCoachListener();
-        } else {
-          const updates = {};
-          if (data.role !== "user") updates.role = "user";
-          if (data.coachAccountStatus !== "inactive") updates.coachAccountStatus = "inactive";
-          if (data.coachProfileComplete) updates.coachProfileComplete = false;
-
-          if (Object.keys(updates).length) {
-            await setDoc(userRef, updates, { merge: true });
-            data = { ...data, ...updates };
-          }
-          allowCoach = false;
-          detachCoachListener();
-          latestCoachData = null;
-        }
-      } else {
-        if (data.coachAccountStatus !== "inactive") {
-          await setDoc(userRef, { coachAccountStatus: "inactive" }, { merge: true });
-          data = { ...data, coachAccountStatus: "inactive" };
-        }
-        allowCoach = false;
-        detachCoachListener();
-        latestCoachData = null;
-      }
-
-      if (allowCoach) {
-        const resolvedComplete =
-          coachData?.profileComplete !== undefined ? coachData.profileComplete : data.coachProfileComplete;
-        setCoachProfile(coachData || null);
-        setCoachProfileComplete(!!resolvedComplete);
-        setRoute("coach");
-      } else {
-        setCoachProfile(null);
-        setCoachProfileComplete(false);
-        setRoute(data.onboardingComplete ? "main" : "onboarding");
-      }
-
-      latestUserData = data;
-    }
-
-    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (user) => {
-      if (unsubscribeUserDoc) {
-        unsubscribeUserDoc();
-        unsubscribeUserDoc = undefined;
-      }
-      detachCoachListener();
-      userRef = undefined;
-      coachRef = undefined;
-      latestUserData = null;
-      latestCoachData = null;
-      applyQueue = Promise.resolve();
+    let unsubUser, unsubCoach;
+    const stopAuth = onAuthStateChanged(firebaseAuth, async (user) => {
+      unsubUser?.();
+      unsubCoach?.();
+      unsubUser = undefined;
+      unsubCoach = undefined;
 
       if (!user) {
+        setAuthGateTarget("SignIn");
         setRoute("auth");
         setCoachProfile(null);
-        setCoachProfileComplete(false);
         setBooting(false);
         return;
       }
 
       setBooting(true);
+      const uid = user.uid;
+      const userRef = doc(db, "users", uid);
+      const coachRef = doc(db, "coaches", uid);
+
       try {
-        userRef = doc(db, "users", user.uid);
-        coachRef = doc(db, "coaches", user.uid);
-
-        let snap = await getDoc(userRef);
-        if (!snap.exists()) {
-          await setDoc(
-            userRef,
-            {
-              role: "user",
-              email: user.email,
-              onboardingComplete: false,
-              coachProfileComplete: false,
-              coachEmailVerified: true,
-              coachAccountStatus: "inactive",
-              createdAt: serverTimestamp(),
-            },
-            { merge: true }
-          );
-          snap = await getDoc(userRef);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) {
+          setAuthGateTarget("SignIn");
+          setRoute("auth");
+          setBooting(false);
+          return;
         }
 
-        let data = snap.data() || {};
-        const defaults = {};
+        const userData = userSnap.data() || {};
+        const role = userData.role;
 
-        if (!data.role) {
-          defaults.role = "user";
-          data = { ...data, role: "user" };
-        }
-        if (!data.email && user.email) {
-          defaults.email = user.email;
-          data = { ...data, email: user.email };
-        }
-        if (data.onboardingComplete === undefined) {
-          defaults.onboardingComplete = false;
-          data = { ...data, onboardingComplete: false };
-        }
-        if (data.coachProfileComplete === undefined) {
-          defaults.coachProfileComplete = false;
-          data = { ...data, coachProfileComplete: false };
-        }
-        if (data.coachEmailVerified === undefined) {
-          defaults.coachEmailVerified = true;
-          data = { ...data, coachEmailVerified: true };
-        }
-        if (data.coachAccountStatus === undefined) {
-          defaults.coachAccountStatus = "inactive";
-          data = { ...data, coachAccountStatus: "inactive" };
+        if (role === "coach") {
+          const needsVerify =
+            !userData.coachOnboardingComplete ||
+            !userData.phoneVerified ||
+            !userData.coachEmailVerified;
+
+          if (needsVerify) {
+            setAuthGateTarget("CoachVerify");
+            setRoute("auth");
+          } else {
+            setRoute("coach");
+          }
+        } else if (role === "user") {
+          setRoute(userData.onboardingComplete ? "main" : "onboarding");
+        } else {
+          setAuthGateTarget("SignIn");
+          setRoute("auth");
         }
 
-        if (Object.keys(defaults).length) {
-          await setDoc(userRef, defaults, { merge: true });
-        }
+        // live listeners
+        unsubUser = onSnapshot(userRef, (snap) => {
+          const data = snap.data() || {};
+          const userRole = data.role;
+          if (userRole === "coach") {
+            const needsVerify =
+              !data.coachOnboardingComplete ||
+              !data.phoneVerified ||
+              !data.coachEmailVerified;
+            if (needsVerify) {
+              setAuthGateTarget("CoachVerify");
+              setRoute("auth");
+            } else {
+              setRoute("coach");
+            }
+          } else if (userRole === "user") {
+            setRoute(data.onboardingComplete ? "main" : "onboarding");
+          }
+        });
 
-        await scheduleApply(data);
-
-        unsubscribeUserDoc = onSnapshot(userRef, (docSnap) => {
-          const fresh = docSnap.data() || {};
-          scheduleApply(fresh);
+        unsubCoach = onSnapshot(coachRef, (snap) => {
+          setCoachProfile(snap.data() || null);
         });
       } catch (error) {
-        console.warn("Failed to resolve auth route", error);
+        console.warn("Auth route error:", error);
+        setAuthGateTarget("SignIn");
         setRoute("auth");
-        setCoachProfile(null);
-        setCoachProfileComplete(false);
       } finally {
         setBooting(false);
       }
     });
 
     return () => {
-      if (unsubscribeUserDoc) unsubscribeUserDoc();
-      detachCoachListener();
-      unsubscribeAuth();
+      unsubUser?.();
+      unsubCoach?.();
+      stopAuth();
     };
   }, []);
 
+  // When nav is ready or route changes, reset to the right root
+  useEffect(() => {
+    if (!navReady || !route || booting) return;
+    const map = {
+      auth: "AuthRoot",
+      onboarding: "OnboardingRoot",
+      main: "MainRoot",
+      coach: "CoachRoot",
+    };
+    const target = map[route];
+    if (navigationRef.isReady() && target) {
+      navigationRef.reset({ index: 0, routes: [{ name: target }] });
+    }
+  }, [navReady, route, booting]);
 
   if (booting || !route) return <LoadingScreen />;
 
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="light-content" backgroundColor="#0b1220" translucent={Platform.OS === "android"} />
-      <NavigationContainer 
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="#0b1220"
+        translucent={Platform.OS === "android"}
+      />
+      <NavigationContainer
+        ref={navigationRef}
         theme={navTheme}
-        initialState={null}
+        onReady={() => setNavReady(true)}
       >
-        {route === "auth" && <AuthStack initialRouteName="SignIn" />}
-        {route === "onboarding" && <OnboardingStack />}
-        {route === "main" && <MainStack />}
-        {route === "coach" && (
-          <CoachStack
-            key={coachProfileComplete ? "coach-ready" : "coach-setup"}
-            coachProfileComplete={coachProfileComplete}
-            coachProfile={coachProfile}
-          />
-        )}
+        <RootNavigator authInitial={authGateTarget} />
       </NavigationContainer>
     </SafeAreaProvider>
   );
