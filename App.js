@@ -52,6 +52,7 @@ import HealthyDishesScreen from "./src/screens/HealthyDishes";
 import BMIScreen from "./src/screens/BMI";
 import ChatListScreen from "./src/screens/ChatListScreen";
 import ChatScreen from "./src/screens/ChatScreen";
+import EditProfileScreen from './src/screens/EditProfileScreen';
 import CoachesListScreen from "./src/screens/CoachesListScreen";
 import DiscoverScreen from "./src/screens/DiscoverScreen";
 import FitnessNewsScreen from "./src/screens/FitnessNewsScreen";
@@ -63,6 +64,16 @@ import ExerciseDetailScreen from "./src/screens/ExerciseDetailScreen";
 import ArticleDetailScreen from "./src/screens/ArticleDetailScreen";
 import CoachPublicProfileScreen from "./src/screens/CoachPublicProfileScreen";
 import ProgressScreen from './src/screens/ProgressScreen';
+
+// Settings screens
+import AccountSettingsScreen from "./src/screens/settings/AccountSettingsScreen";
+import ProfileGoalsSettingsScreen from "./src/screens/settings/ProfileGoalsSettingsScreen";
+import NutritionSettingsScreen from "./src/screens/settings/NutritionSettingsScreen";
+import NotificationSettingsScreen from "./src/screens/settings/NotificationSettingsScreen";
+import UnitsDisplaySettingsScreen from "./src/screens/settings/UnitsDisplaySettingsScreen";
+import PrivacyDataSettingsScreen from "./src/screens/settings/PrivacyDataSettingsScreen";
+import SupportSettingsScreen from "./src/screens/settings/SupportSettingsScreen";
+import AboutSettingsScreen from "./src/screens/settings/AboutSettingsScreen";
 
 /* ─────────────────────────────────────────────────────────── */
 
@@ -137,6 +148,19 @@ function MainStack() {
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }} />
+      
+      {/* ===== Settings Screens ===== */}
+      <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
+      <Stack.Screen name="ProfileGoalsSettings" component={ProfileGoalsSettingsScreen} />
+      <Stack.Screen name="NutritionSettings" component={NutritionSettingsScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+      <Stack.Screen name="UnitsDisplaySettings" component={UnitsDisplaySettingsScreen} />
+      <Stack.Screen name="PrivacyDataSettings" component={PrivacyDataSettingsScreen} />
+      <Stack.Screen name="SupportSettings" component={SupportSettingsScreen} />
+      <Stack.Screen name="AboutSettings" component={AboutSettingsScreen} />
+      {/* ===== End Settings Screens ===== */}
+      
       <Stack.Screen name="Settings" component={SettingsScreen} />
       <Stack.Screen
         name="GymDiscovery"
@@ -243,7 +267,6 @@ function MainStack() {
       />
       <Stack.Screen name="ArticleDetail" component={ArticleDetailScreen} />
     </Stack.Navigator>
-    
   );
 }
 
@@ -272,10 +295,9 @@ function CoachStack() {
 function RootNavigator({ authInitial = "SignIn" }) {
   return (
     <Root.Navigator screenOptions={{ headerShown: false }}>
-      <Root.Screen
-        name="AuthRoot"
-        children={() => <AuthStack initialRouteName={authInitial} />}
-      />
+      <Root.Screen name="AuthRoot">
+  {() => <AuthStack initialRouteName={authInitial} />}
+</Root.Screen>
       <Root.Screen name="OnboardingRoot" component={OnboardingStack} />
       <Root.Screen name="MainRoot" component={MainStack} />
       <Root.Screen name="CoachRoot" component={CoachStack} />
@@ -323,7 +345,6 @@ export default function App() {
         const userSnap = await getDoc(userRef);
         console.log('[AuthListener] user doc exists?', userSnap.exists());
         if (!userSnap.exists()) {
-          // Create a minimal baseline user doc to avoid race with SignInScreen creation
           try {
           console.log('[AuthListener] creating baseline user doc');
             await setDoc(userRef, {
@@ -336,14 +357,12 @@ export default function App() {
               createdAt: serverTimestamp(),
               lastSeen: serverTimestamp(),
             }, { merge: true });
-            // Treat as freshly signed-up user (send to onboarding)
             setRoute('onboarding');
           } catch (e) {
             console.warn('[AuthListener] failed to create baseline user doc', e);
             setAuthGateTarget('SignIn');
             setRoute('auth');
           } finally {
-            // Still attach listener so future updates (e.g., onboarding completion) propagate
             unsubUser = onSnapshot(userRef, (snap) => {
               const data = snap.data() || {};
               console.log('[AuthListener][onSnapshot user] role=', data.role, 'onboardingComplete=', data.onboardingComplete);
@@ -357,14 +376,13 @@ export default function App() {
             unsubCoach = onSnapshot(coachRef, (snap) => { console.log('[AuthListener][onSnapshot coach] doc', !!snap.exists()); setCoachProfile(snap.data() || null); });
             setBooting(false);
           }
-          return; // exit early after creation/setup
+          return;
         }
 
         const userData = userSnap.data() || {};
         const role = userData.role;
         console.log('[AuthListener] existing user role=', role, 'onboardingComplete=', userData.onboardingComplete);
 
-        // Self-repair for known verified coach account
         if ((user.email||'').toLowerCase() === 'yunaldecosta145@gmail.com') {
           const needsCoachRepair = (role !== 'coach') || !userData.coachOnboardingComplete || !userData.phoneVerified || !userData.coachEmailVerified;
           if (needsCoachRepair) {
@@ -380,7 +398,6 @@ export default function App() {
               }, { merge: true });
             } catch(e) { console.warn('[AuthListener] coach repair failed', e); }
           }
-          // Ensure public coach listing exists/updated
           try {
             const cSnap = await getDoc(coachRef);
             if (!cSnap.exists()) {
@@ -420,7 +437,6 @@ export default function App() {
             !userData.coachEmailVerified;
 
           if (needsVerify) {
-            // If coach doc already exists & is public/approved, treat as verified fallback
             try {
               const cSnap = await getDoc(coachRef);
               const cData = cSnap.data() || {};
@@ -446,7 +462,6 @@ export default function App() {
           setRoute("auth");
         }
 
-        // live listeners
         unsubUser = onSnapshot(userRef, (snap) => {
           const data = snap.data() || {};
           const userRole = data.role;
@@ -487,15 +502,13 @@ export default function App() {
     };
   }, []);
 
-  // When nav is ready or route changes, reset to the right root
-  // New resilient reset loop: keeps trying until nav container ready (no reliance on navReady state)
   useEffect(() => {
     if (!route || booting) return;
     const map = { auth:'AuthRoot', onboarding:'OnboardingRoot', main:'MainRoot', coach:'CoachRoot' };
     const target = map[route];
     if (!target) return;
     let attempts = 0;
-    const maxAttempts = 20; // ~3s (20 * 150ms)
+    const maxAttempts = 20;
     console.log('[NavResetLoop] starting for route', route, 'target', target);
     const interval = setInterval(() => {
       attempts++;
@@ -515,11 +528,9 @@ export default function App() {
     return () => clearInterval(interval);
   }, [route, booting]);
 
-  // Fallback safety: if onboardingComplete is true but still on auth after 4s, force main
   useEffect(() => {
     if (route === 'auth') {
       const id = setTimeout(() => {
-        // Attempt to peek at current user doc
         const u = firebaseAuth.currentUser;
         if (!u) return;
         getDoc(doc(db, 'users', u.uid)).then(s => {

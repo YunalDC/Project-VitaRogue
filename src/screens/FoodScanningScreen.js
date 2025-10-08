@@ -944,7 +944,7 @@ const adj = useMemo(
       fiber: ((base.fiber || 0) * servingSize).toFixed(1),
       sugar: ((base.sugar || 0) * servingSize).toFixed(1),
       sodium: Math.round((base.sodium || 0) * servingSize),
-      cholesterol: Math.round(baseCholesterol * servingSize), // ✅ ADDED
+      cholesterol: Math.round(baseCholesterol * servingSize), 
     };
   },
   [base, servingSize, foodData]
@@ -968,7 +968,7 @@ const adj = useMemo(
     fiber: parseFloat(adj.fiber),
     sugar: parseFloat(adj.sugar),
     sodium: parseFloat(adj.sodium),
-    cholesterol: parseFloat(adj.cholesterol), // ✅ ADDED
+    cholesterol: parseFloat(adj.cholesterol), 
   },
   imageUri: imageUri || null,
   allergens: foodData.allergens || [],

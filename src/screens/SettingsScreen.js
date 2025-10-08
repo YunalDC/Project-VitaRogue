@@ -98,7 +98,7 @@ export default function SettingsScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.linkRow}
-            onPress={() => navigation.navigate("Onboarding")}
+            onPress={() => navigation.navigate("EditProfileScreen")}
           >
             <View style={styles.rowLeft}>
               <Ionicons name="person-circle-outline" size={18} color={COLORS.muted} style={{ marginRight: 10 }} />

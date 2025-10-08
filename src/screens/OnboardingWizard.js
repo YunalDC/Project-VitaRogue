@@ -274,7 +274,7 @@ const EnhancedSummaryRow = ({ label, value, icon, onPress }) => (
 export default function OnboardingWizard({ navigation }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState({
-    firstName: "",
+    Name: "",
     age: "",
     gender: "",
     heightCm: "",
