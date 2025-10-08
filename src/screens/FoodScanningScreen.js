@@ -146,31 +146,32 @@ export default function FoodScanningScreen({ navigation }) {
       console.log("Image converted to base64");
 
       const requestBody = {
-        contents: [
+  contents: [
+    {
+      parts: [
+        {
+          text: `Analyze this food image and provide detailed nutritional information. 
+          
+          Response format (JSON only, no markdown):
           {
-            parts: [
-              {
-                text: `Analyze this food image and provide detailed nutritional information. 
-                
-                Response format (JSON only, no markdown):
-                {
-                  "recognized": true/false,
-                  "foodName": "name of the food",
-                  "confidence": 0-100 (percentage),
-                  "servingSize": "estimated portion size",
-                  "servingSizeGrams": number,
-                  "nutrition": {
-                    "calories": number,
-                    "protein": number,
-                    "fat": number,
-                    "carbs": number,
-                    "fiber": number,
-                    "sugar": number,
-                    "sodium": number
-                  },
-                  "allergens": ["list of common allergens"],
-                  "healthBenefits": ["list of 3 health benefits"]
-                }
+            "recognized": true/false,
+            "foodName": "name of the food",
+            "confidence": 0-100 (percentage),
+            "servingSize": "estimated portion size",
+            "servingSizeGrams": number,
+            "nutrition": {
+              "calories": number,
+              "protein": number,
+              "fat": number,
+              "carbs": number,
+              "fiber": number,
+              "sugar": number,
+              "sodium": number,
+              "cholesterol": number
+            },
+            "allergens": ["list of common allergens"],
+            "healthBenefits": ["list of 3 health benefits"]
+          }
                 
                 If you cannot clearly identify the food or if it's not food, set recognized to false and confidence to 0.`
               },
@@ -230,31 +231,32 @@ export default function FoodScanningScreen({ navigation }) {
       console.log("Looking up nutrition for:", foodName, portion, unit);
       
       const requestBody = {
-        contents: [
+  contents: [
+    {
+      parts: [
+        {
+          text: `Provide detailed nutritional information for "${foodName}" with portion size of ${portion}${unit}.
+          
+          Response format (JSON only, no markdown):
           {
-            parts: [
-              {
-                text: `Provide detailed nutritional information for "${foodName}" with portion size of ${portion}${unit}.
-                
-                Response format (JSON only, no markdown):
-                {
-                  "recognized": true/false,
-                  "foodName": "standardized name",
-                  "confidence": 0-100,
-                  "servingSize": "${portion}${unit}",
-                  "servingSizeGrams": number (convert to grams),
-                  "nutrition": {
-                    "calories": number,
-                    "protein": number,
-                    "fat": number,
-                    "carbs": number,
-                    "fiber": number,
-                    "sugar": number,
-                    "sodium": number
-                  },
-                  "allergens": ["list"],
-                  "healthBenefits": ["list of 3 benefits"]
-                }
+            "recognized": true/false,
+            "foodName": "standardized name",
+            "confidence": 0-100,
+            "servingSize": "${portion}${unit}",
+            "servingSizeGrams": number (convert to grams),
+            "nutrition": {
+              "calories": number,
+              "protein": number,
+              "fat": number,
+              "carbs": number,
+              "fiber": number,
+              "sugar": number,
+              "sodium": number,
+              "cholesterol": number
+            },
+            "allergens": ["list"],
+            "healthBenefits": ["list of 3 benefits"]
+          }
                 
                 If this is not a real food item, set recognized to false.`
               }
@@ -925,8 +927,16 @@ function NutritionResultsSheet({ foodData, imageUri, onAddToMeal, onClose }) {
   const [isSaving, setIsSaving] = useState(false);
 
   const base = foodData?.nutrition || {};
-  const adj = useMemo(
-    () => ({
+const adj = useMemo(
+  () => {
+    // Get cholesterol from API or estimate if missing
+    const baseCholesterol = base.cholesterol || 
+      estimateCholesterol(foodData?.foodName || '', foodData?.servingSizeGrams || 100);
+    
+    console.log('🔍 Base cholesterol:', base.cholesterol);
+    console.log('🔍 Estimated cholesterol:', baseCholesterol);
+    
+    return {
       calories: Math.round((base.calories || 0) * servingSize),
       fat: ((base.fat || 0) * servingSize).toFixed(1),
       carbs: ((base.carbs || 0) * servingSize).toFixed(1),
@@ -934,9 +944,11 @@ function NutritionResultsSheet({ foodData, imageUri, onAddToMeal, onClose }) {
       fiber: ((base.fiber || 0) * servingSize).toFixed(1),
       sugar: ((base.sugar || 0) * servingSize).toFixed(1),
       sodium: Math.round((base.sodium || 0) * servingSize),
-    }),
-    [base, servingSize]
-  );
+      cholesterol: Math.round(baseCholesterol * servingSize), // ✅ ADDED
+    };
+  },
+  [base, servingSize, foodData]
+);
 
   const handleAddToMeal = async () => {
     setIsSaving(true);
@@ -944,23 +956,26 @@ function NutritionResultsSheet({ foodData, imageUri, onAddToMeal, onClose }) {
     try {
       // Prepare food data with adjusted nutrition
       const dataToSave = {
-        foodName: foodData.foodName,
-        confidence: foodData.confidence,
-        servingSize: servingSize,
-        originalServingSize: foodData.servingSize,
-        nutrition: {
-          calories: parseFloat(adj.calories),
-          protein: parseFloat(adj.protein),
-          fat: parseFloat(adj.fat),
-          carbs: parseFloat(adj.carbs),
-          fiber: parseFloat(adj.fiber),
-          sugar: parseFloat(adj.sugar),
-          sodium: parseFloat(adj.sodium),
-        },
-        imageUri: imageUri || null,
-        allergens: foodData.allergens || [],
-        healthBenefits: foodData.healthBenefits || [],
-      };
+  foodName: foodData.foodName,
+  confidence: foodData.confidence,
+  servingSize: servingSize,
+  originalServingSize: foodData.servingSize,
+  nutrition: {
+    calories: parseFloat(adj.calories),
+    protein: parseFloat(adj.protein),
+    fat: parseFloat(adj.fat),
+    carbs: parseFloat(adj.carbs),
+    fiber: parseFloat(adj.fiber),
+    sugar: parseFloat(adj.sugar),
+    sodium: parseFloat(adj.sodium),
+    cholesterol: parseFloat(adj.cholesterol), // ✅ ADDED
+  },
+  imageUri: imageUri || null,
+  allergens: foodData.allergens || [],
+  healthBenefits: foodData.healthBenefits || [],
+};
+
+console.log('💾 Saving with cholesterol:', dataToSave.nutrition.cholesterol, 'mg');
       
       console.log('Saving food entry:', dataToSave, selectedMealType);
       

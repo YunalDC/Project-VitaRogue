@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { saveFoodEntry } from '../utils/foodStorage'; // ← ADD THIS IMPORT
 
 const BG = '#0B1220';
 const CARD = '#111827';
@@ -18,6 +19,74 @@ const BORDER = '#1f2937';
 const TEXT = '#e5e7eb';
 const MUTED = '#94a3b8';
 const SUCCESS = '#10B981';
+
+// ============================================
+// CHOLESTEROL ESTIMATION FUNCTION
+// ============================================
+const estimateCholesterol = (foodName, grams) => {
+  const name = (foodName || '').toLowerCase();
+  
+  console.log('🔧 Estimating cholesterol for:', foodName, grams + 'g');
+  
+  // High cholesterol foods (per 100g)
+  if (name.includes('egg')) {
+    // 1 egg (~50g) = 186mg, so 100g = 372mg
+    const cholesterol = Math.round((grams / 100) * 372);
+    console.log('🥚 Egg cholesterol:', cholesterol + 'mg');
+    return cholesterol;
+  }
+  if (name.includes('shrimp') || name.includes('prawn')) {
+    return Math.round((grams / 100) * 189);
+  }
+  if (name.includes('liver')) {
+    return Math.round((grams / 100) * 389); // Very high
+  }
+  if (name.includes('beef') || name.includes('steak') || name.includes('hamburger')) {
+    return Math.round((grams / 100) * 85);
+  }
+  if (name.includes('pork') || name.includes('bacon') || name.includes('ham')) {
+    return Math.round((grams / 100) * 75);
+  }
+  if (name.includes('chicken') || name.includes('turkey')) {
+    if (name.includes('skin')) {
+      return Math.round((grams / 100) * 85);
+    }
+    return Math.round((grams / 100) * 70);
+  }
+  if (name.includes('salmon') || name.includes('tuna') || name.includes('fish')) {
+    return Math.round((grams / 100) * 60);
+  }
+  if (name.includes('cheese')) {
+    return Math.round((grams / 100) * 100);
+  }
+  if (name.includes('butter')) {
+    return Math.round((grams / 100) * 215);
+  }
+  if (name.includes('milk') || name.includes('yogurt')) {
+    if (name.includes('whole')) {
+      return Math.round((grams / 100) * 14);
+    }
+    return Math.round((grams / 100) * 5); // Low-fat
+  }
+  if (name.includes('cream') || name.includes('ice cream')) {
+    return Math.round((grams / 100) * 45);
+  }
+  
+  // Plant-based foods (no cholesterol)
+  if (name.includes('apple') || name.includes('banana') || name.includes('orange') ||
+      name.includes('vegetable') || name.includes('fruit') || name.includes('bean') ||
+      name.includes('lentil') || name.includes('rice') || name.includes('pasta') ||
+      name.includes('bread') || name.includes('oat') || name.includes('nut') ||
+      name.includes('tofu') || name.includes('soy') || name.includes('broccoli') ||
+      name.includes('carrot') || name.includes('tomato') || name.includes('lettuce')) {
+    console.log('🌱 Plant-based food, cholesterol: 0mg');
+    return 0;
+  }
+  
+  // Default: if uncertain, assume no cholesterol
+  console.log('❓ Unknown food, cholesterol: 0mg');
+  return 0;
+};
 
 // Helper component for nutrient rows
 const NutrientRow = ({ icon, name, value }) => (
@@ -32,6 +101,7 @@ const NutrientRow = ({ icon, name, value }) => (
 
 export default function FoodDetailsScreen({ route, navigation }) {
   const { foodData } = route.params;
+  const [saving, setSaving] = useState(false);
   
   // Mock nutritional data - replace with actual API call
   const nutritionData = {
@@ -42,20 +112,52 @@ export default function FoodDetailsScreen({ route, navigation }) {
     fiber: Math.round((foodData.grams / 100) * 2.4 * 10) / 10,
     sugar: Math.round((foodData.grams / 100) * 10.4 * 10) / 10,
     sodium: Math.round((foodData.grams / 100) * 1),
+    cholesterol: estimateCholesterol(foodData.name, foodData.grams), // ✅ Now defined!
   };
 
-  const handleSaveToLog = () => {
-    // Here you would save to your nutrition log / Firebase
-    Alert.alert(
-      'Added to Log',
-      `${foodData.name} (${foodData.grams}g) has been added to your nutrition log.`,
-      [
-        {
-          text: 'OK',
-          onPress: () => navigation.navigate('Home'),
-        },
-      ]
-    );
+  // 🔍 DEBUG: Log nutrition data
+  console.log('📊 Food Details Nutrition Data:', nutritionData);
+  console.log('🔍 Cholesterol:', nutritionData.cholesterol, 'mg');
+
+  const handleSaveToLog = async () => {
+    try {
+      setSaving(true);
+
+      // Create the food entry object
+      const foodEntry = {
+        name: foodData.name,
+        grams: foodData.grams,
+        nutrition: nutritionData, // ✅ Includes cholesterol!
+        servingSize: 1,
+      };
+
+      console.log('💾 Saving food entry:', foodEntry);
+
+      // TODO: You need to select meal type - for now using "Breakfast"
+      // You can add a meal type selector in the UI
+      const mealType = 'Breakfast'; // Change this or add UI to select
+
+      // Save to storage (this will sync to Firebase)
+      await saveFoodEntry(foodEntry, mealType);
+
+      console.log('✅ Food saved successfully!');
+
+      Alert.alert(
+        'Added to Log',
+        `${foodData.name} (${foodData.grams}g) has been added to your nutrition log.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.navigate('Home'),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('❌ Error saving food:', error);
+      Alert.alert('Error', 'Failed to save food entry. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -128,6 +230,11 @@ export default function FoodDetailsScreen({ route, navigation }) {
             <NutrientRow icon="leaf-outline" name="Fiber" value={`${nutritionData.fiber}g`} />
             <NutrientRow icon="cube-outline" name="Sugar" value={`${nutritionData.sugar}g`} />
             <NutrientRow icon="water-outline" name="Sodium" value={`${nutritionData.sodium}mg`} />
+            <NutrientRow 
+              icon="heart-outline" 
+              name="Cholesterol" 
+              value={`${nutritionData.cholesterol}mg`} 
+            />
           </View>
         </View>
 
@@ -149,13 +256,33 @@ export default function FoodDetailsScreen({ route, navigation }) {
             </View>
           </View>
         </View>
+
+        {/* Debug Info (Remove in production) */}
+        {__DEV__ && (
+          <View style={[styles.card, { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#eab308' }]}>
+            <Text style={[styles.sectionTitle, { color: '#eab308' }]}>🔍 DEBUG INFO</Text>
+            <Text style={{ color: TEXT, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>
+              {JSON.stringify(nutritionData, null, 2)}
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Save Button */}
       <View style={styles.bottomContainer}>
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSaveToLog}>
-          <Ionicons name="checkmark-circle-outline" size={24} color={BG} />
-          <Text style={styles.saveBtnText}>Add to Nutrition Log</Text>
+        <TouchableOpacity 
+          style={[styles.saveBtn, saving && { opacity: 0.6 }]} 
+          onPress={handleSaveToLog}
+          disabled={saving}
+        >
+          <Ionicons 
+            name={saving ? "hourglass-outline" : "checkmark-circle-outline"} 
+            size={24} 
+            color={BG} 
+          />
+          <Text style={styles.saveBtnText}>
+            {saving ? 'Saving...' : 'Add to Nutrition Log'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>

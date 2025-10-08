@@ -541,6 +541,21 @@ export default function HomeScreen({ route, navigation }) {
     return COLORS.danger;
   }, [bmi]);
 
+  /* ------------ Debug data flow (REMOVE IN PRODUCTION) ------------ */
+  useEffect(() => {
+    console.log('=== DEBUG: Data Flow ===');
+    console.log('1. User authenticated:', !!authUser);
+    console.log('2. Profile loaded:', !!profile);
+    console.log('3. Profile data:', profile);
+    console.log('4. Calculated targets:', targets);
+    console.log('5. Base calorie goal:', baseGoal);
+    console.log('6. Today diary:', todayDiary);
+    console.log('7. Consumed kcal:', consumedKcal);
+    console.log('8. Exercise kcal:', exerciseKcal);
+    console.log('9. Remaining kcal:', remaining);
+    console.log('========================');
+  }, [authUser, profile, targets, baseGoal, todayDiary, consumedKcal, exerciseKcal, remaining]);
+
   /* ------------ Helpers ------------ */
   const safeNav = (name, params) => {
     const names = navigation?.getState?.()?.routeNames || [];
@@ -806,12 +821,18 @@ export default function HomeScreen({ route, navigation }) {
                 ]}
               >
                 <View style={styles.donutInner}>
-                  <Text style={[styles.donutBig, { fontSize: ms(isXSmall ? 16 : 20) }]}>
-                    {remaining.toLocaleString()}
-                  </Text>
-                  <Text style={[styles.donutSub, { fontSize: ms(isXSmall ? 10 : 12) }]}>
-                    {remaining > 0 ? 'Remaining' : 'Over'}
-                  </Text>
+                  {loading ? (
+                    <Text style={{ color: COLORS.muted, fontSize: ms(12) }}>Loading...</Text>
+                  ) : (
+                    <>
+                      <Text style={[styles.donutBig, { fontSize: ms(isXSmall ? 16 : 20) }]}>
+                        {remaining.toLocaleString()}
+                      </Text>
+                      <Text style={[styles.donutSub, { fontSize: ms(isXSmall ? 10 : 12) }]}>
+                        {remaining > 0 ? 'Remaining' : 'Over'}
+                      </Text>
+                    </>
+                  )}
                 </View>
                 <View
                   style={[
@@ -1403,7 +1424,7 @@ export default function HomeScreen({ route, navigation }) {
             text="Settings" 
             onPress={() => {
               setMoreVisible(false);
-              navigation.navigate("Settings"); // <-- DIRECT TO SETTINGS
+              navigation.navigate("Settings");
             }}
             ms={ms}
           />

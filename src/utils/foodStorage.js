@@ -78,6 +78,30 @@ const syncToFirebase = async (date) => {
     // Calculate totals
     const totals = calculateDailyTotalsFromEntries(dayEntries);
 
+    // 🔍 DEBUG: Log the totals to see if cholesterol is being calculated
+    const allEntries = [
+      ...dayEntries.Breakfast,
+      ...dayEntries.Lunch,
+      ...dayEntries.Dinner,
+      ...dayEntries.Snack
+    ];
+    
+    console.log('=== FOOD SYNC DEBUG ===');
+    console.log('Date:', date);
+    console.log('Total entries:', allEntries.length);
+    console.log('Calculated totals:', totals);
+    console.log('Cholesterol:', totals.cholesterolMg, 'mg');
+    console.log('Sodium:', totals.sodiumMg, 'mg');
+    
+    // Log individual entries to see their nutrition data
+    if (allEntries.length > 0) {
+      console.log('First entry sample:', {
+        name: allEntries[0].name,
+        nutrition: allEntries[0].nutrition
+      });
+    }
+    console.log('======================');
+
     // Reference to Firebase diary document
     const diaryRef = doc(db, 'users', user.uid, 'diary', date);
 
@@ -113,6 +137,9 @@ const syncToFirebase = async (date) => {
 export const saveFoodEntry = async (foodData, mealType, date = getTodayDate()) => {
   try {
     console.log('💾 Saving food entry:', { foodData, mealType, date });
+
+    // 🔍 DEBUG: Check what nutrition data we're receiving
+    console.log('📊 Nutrition data received:', foodData.nutrition);
 
     // 1. Get existing log from AsyncStorage
     const existingLog = await getFoodLog();
