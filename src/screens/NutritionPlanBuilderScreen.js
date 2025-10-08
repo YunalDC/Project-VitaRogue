@@ -15,127 +15,38 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { getAuth } from 'firebase/auth';
+import { db } from '../lib/firebaseApp';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
+// (Re)introduce constants lost during previous patch
 const COLORS = {
-    bg: "#0B1220",
-    card: "#111827",
-    card2: "#0f172a",
-    border: "#1f2937",
-    text: "#e5e7eb",
-    muted: "#94a3b8",
-    primary: "#10B981",
-    secondary: "#60a5fa",
-    accent: "#f59e0b",
-    success: "#22c55e",
-    warning: "#eab308",
-    danger: "#ef4444",
+    bg: '#0B1220',
+    card: '#111827',
+    card2: '#0f172a',
+    border: '#1f2937',
+    text: '#e5e7eb',
+    muted: '#94a3b8',
+    primary: '#10B981',
+    secondary: '#60a5fa',
+    accent: '#f59e0b',
+    success: '#22c55e',
+    warning: '#eab308',
+    danger: '#ef4444',
 };
-
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snack"];
-
 const RECIPES_LIBRARY = [
-    {
-        id: 1,
-        name: "Grilled Chicken & Rice",
-        type: "Lunch",
-        calories: 520,
-        protein: 45,
-        carbs: 55,
-        fats: 12,
-        dietary: ["High Protein"],
-    },
-    {
-        id: 2,
-        name: "Oatmeal with Berries",
-        type: "Breakfast",
-        calories: 320,
-        protein: 12,
-        carbs: 58,
-        fats: 6,
-        dietary: ["Vegetarian"],
-    },
-    {
-        id: 3,
-        name: "Salmon with Sweet Potato",
-        type: "Dinner",
-        calories: 580,
-        protein: 42,
-        carbs: 48,
-        fats: 22,
-        dietary: ["High Protein", "Omega-3"],
-    },
-    {
-        id: 4,
-        name: "Greek Yogurt & Nuts",
-        type: "Snack",
-        calories: 250,
-        protein: 18,
-        carbs: 15,
-        fats: 14,
-        dietary: ["High Protein", "Vegetarian"],
-    },
-    {
-        id: 5,
-        name: "Turkey Sandwich",
-        type: "Lunch",
-        calories: 420,
-        protein: 32,
-        carbs: 45,
-        fats: 12,
-        dietary: ["High Protein"],
-    },
-    {
-        id: 6,
-        name: "Protein Smoothie",
-        type: "Breakfast",
-        calories: 280,
-        protein: 30,
-        carbs: 32,
-        fats: 6,
-        dietary: ["High Protein", "Quick"],
-    },
-    {
-        id: 7,
-        name: "Stir Fry Vegetables",
-        type: "Dinner",
-        calories: 380,
-        protein: 15,
-        carbs: 52,
-        fats: 14,
-        dietary: ["Vegetarian", "Vegan"],
-    },
-    {
-        id: 8,
-        name: "Protein Bar",
-        type: "Snack",
-        calories: 200,
-        protein: 20,
-        carbs: 22,
-        fats: 7,
-        dietary: ["High Protein", "Quick"],
-    },
-    {
-        id: 9,
-        name: "Egg White Omelet",
-        type: "Breakfast",
-        calories: 220,
-        protein: 28,
-        carbs: 8,
-        fats: 8,
-        dietary: ["High Protein", "Low Carb"],
-    },
-    {
-        id: 10,
-        name: "Beef & Broccoli",
-        type: "Dinner",
-        calories: 480,
-        protein: 38,
-        carbs: 35,
-        fats: 20,
-        dietary: ["High Protein"],
-    },
+    { id: 1, name: 'Grilled Chicken & Rice', type: 'Lunch', calories: 520, protein: 45, carbs: 55, fats: 12, dietary: ['High Protein'] },
+    { id: 2, name: 'Oatmeal with Berries', type: 'Breakfast', calories: 320, protein: 12, carbs: 58, fats: 6, dietary: ['Vegetarian'] },
+    { id: 3, name: 'Salmon with Sweet Potato', type: 'Dinner', calories: 580, protein: 42, carbs: 48, fats: 22, dietary: ['High Protein','Omega-3'] },
+    { id: 4, name: 'Greek Yogurt & Nuts', type: 'Snack', calories: 250, protein: 18, carbs: 15, fats: 14, dietary: ['High Protein','Vegetarian'] },
+    { id: 5, name: 'Turkey Sandwich', type: 'Lunch', calories: 420, protein: 32, carbs: 45, fats: 12, dietary: ['High Protein'] },
+    { id: 6, name: 'Protein Smoothie', type: 'Breakfast', calories: 280, protein: 30, carbs: 32, fats: 6, dietary: ['High Protein','Quick'] },
+    { id: 7, name: 'Stir Fry Vegetables', type: 'Dinner', calories: 380, protein: 15, carbs: 52, fats: 14, dietary: ['Vegetarian','Vegan'] },
+    { id: 8, name: 'Protein Bar', type: 'Snack', calories: 200, protein: 20, carbs: 22, fats: 7, dietary: ['High Protein','Quick'] },
+    { id: 9, name: 'Egg White Omelet', type: 'Breakfast', calories: 220, protein: 28, carbs: 8, fats: 8, dietary: ['High Protein','Low Carb'] },
+    { id: 10, name: 'Beef & Broccoli', type: 'Dinner', calories: 480, protein: 38, carbs: 35, fats: 20, dietary: ['High Protein'] },
 ];
 
 const DIETARY_FILTERS = [
@@ -188,6 +99,113 @@ export default function NutritionPlanBuilderScreen({ navigation, route }) {
     };
 
     const dayTotals = calculateDayTotals();
+
+    // Helper builders (moved inside component to access state)
+    const buildPlanPayload = () => ({
+        name: planName.trim(),
+        createdAt: serverTimestamp(),
+        createdDate: new Date().toISOString().split('T')[0],
+        duration: '7 days',
+        macroTargets: {
+            calories: calorieTarget,
+            protein: proteinTarget,
+            carbs: carbsTarget,
+            fats: fatsTarget,
+        },
+        plan: nutritionPlan,
+        totalsByDay: Object.fromEntries(
+            Object.keys(nutritionPlan).map(day => {
+                const meals = nutritionPlan[day];
+                let totals = { calories: 0, protein: 0, carbs: 0, fats: 0 };
+                Object.values(meals).forEach(arr => arr.forEach(m => {
+                    totals.calories += m.calories; totals.protein += m.protein; totals.carbs += m.carbs; totals.fats += m.fats;
+                }));
+                return [day, totals];
+            })
+        ),
+        summary: `${calorieTarget} cal • P:${proteinTarget}g C:${carbsTarget}g F:${fatsTarget}g`,
+        type: 'nutrition'
+    });
+
+    const persistTemplate = async (coachUid) => {
+        const payload = buildPlanPayload();
+        const colRef = collection(db, 'coaches', coachUid, 'nutritionTemplates');
+        await addDoc(colRef, payload);
+    };
+
+    const assignToClient = async (coachUid, clientUid) => {
+        const payload = buildPlanPayload();
+        payload.assignedTo = clientUid;
+        const colRef = collection(db, 'users', clientUid, 'nutritionPlans');
+        await addDoc(colRef, payload);
+    };
+
+    const savePlan = () => {
+        if (!planName.trim()) {
+            Alert.alert('Plan Name Required', 'Please enter a name for this nutrition plan');
+            return;
+        }
+        const auth = getAuth();
+        const user = auth.currentUser;
+        if (!user) {
+            Alert.alert('Not signed in', 'You must be signed in to save a plan');
+            return;
+        }
+
+        Alert.alert('Save Nutrition Plan', `Save "${planName}" for ${client.name}?`, [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Save as Template',
+                onPress: async () => {
+                    try {
+                        await persistTemplate(user.uid);
+                        Alert.alert('Success', 'Nutrition plan saved as template');
+                    } catch (e) {
+                        console.error('Template save failed', e);
+                        Alert.alert('Error', 'Failed to save template');
+                    } finally {
+                        navigation.navigate('CoachClientProfile', {
+                            client: client,
+                            existingPlans: route?.params?.existingPlans || [],
+                            newPlan: {
+                                type: 'nutrition',
+                                name: planName,
+                                createdDate: new Date().toISOString().split('T')[0],
+                                duration: '7 days',
+                                details: `${calorieTarget} cal, P:${proteinTarget}g C:${carbsTarget}g F:${fatsTarget}g`
+                            }
+                        });
+                    }
+                }
+            },
+            {
+                text: 'Assign to Client',
+                onPress: async () => {
+                    try {
+                        const clientUid = route?.params?.clientUid || client.uid;
+                        if (!clientUid) throw new Error('Missing client UID');
+                        await assignToClient(user.uid, clientUid);
+                        Alert.alert('Success', `Nutrition plan assigned to ${client.name}`);
+                    } catch (e) {
+                        console.error('Assign failed', e);
+                        Alert.alert('Error', 'Failed to assign plan');
+                    } finally {
+                        navigation.navigate('CoachClientProfile', {
+                            client: client,
+                            existingPlans: route?.params?.existingPlans || [],
+                            newPlan: {
+                                type: 'nutrition',
+                                name: planName,
+                                createdDate: new Date().toISOString().split('T')[0],
+                                duration: '7 days',
+                                details: `${calorieTarget} cal, P:${proteinTarget}g C:${carbsTarget}g F:${fatsTarget}g`
+                            }
+                        });
+                    }
+                }
+            }
+        ]);
+    };
 
     const addMealToDay = (recipe) => {
         const meal = {
@@ -245,50 +263,6 @@ export default function NutritionPlanBuilderScreen({ navigation, route }) {
         setShowRecipeModal(true);
     };
 
-    const savePlan = () => {
-        if (!planName.trim()) {
-            Alert.alert("Plan Name Required", "Please enter a name for this nutrition plan");
-            return;
-        }
-
-        Alert.alert("Save Nutrition Plan", `Save "${planName}" for ${client.name}?`, [
-            { text: "Cancel", style: "cancel" },
-            {
-                text: "Save as Template",
-                onPress: () => {
-                    Alert.alert("Success", "Nutrition plan saved as template!");
-                    navigation.navigate('CoachClientProfile', {
-                        client: client,
-                        existingPlans: route?.params?.existingPlans || [],
-                        newPlan: {
-                            type: "nutrition",
-                            name: planName,
-                            createdDate: new Date().toISOString().split('T')[0],
-                            duration: "7 days",
-                            details: `${calorieTarget} cal, P:${proteinTarget}g C:${carbsTarget}g F:${fatsTarget}g`
-                        }
-                    });
-                },
-            },
-            {
-                text: "Assign to Client",
-                onPress: () => {
-                    Alert.alert("Success", `Nutrition plan assigned to ${client.name}!`);
-                    navigation.navigate('CoachClientProfile', {
-                        client: client,
-                        existingPlans: route?.params?.existingPlans || [],
-                        newPlan: {
-                            type: "nutrition",
-                            name: planName,
-                            createdDate: new Date().toISOString().split('T')[0],
-                            duration: "7 days",
-                            details: `${calorieTarget} cal, P:${proteinTarget}g C:${carbsTarget}g F:${fatsTarget}g`
-                        }
-                    });
-                },
-            },
-        ]);
-    };
 
     const getProgressColor = (current, target) => {
         const percentage = (current / target) * 100;

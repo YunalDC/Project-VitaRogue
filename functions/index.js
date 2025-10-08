@@ -1,10 +1,53 @@
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import * as functions from 'firebase-functions';
+import fetch from 'node-fetch';
 
 // Initialize admin
 initializeApp({ credential: applicationDefault() });
 const db = getFirestore();
+
+// --- Push Notification Helpers -------------------------------------------------
+/**
+ * Fetches Expo push token for a user (stored at users/{uid}/meta/push)
+ */
+async function getUserPushToken(uid) {
+  try {
+    const snap = await db.collection('users').doc(uid).collection('meta').doc('push').get();
+    if (!snap.exists) return null;
+    const data = snap.data() || {};
+    return data.token || null;
+  } catch (e) {
+    console.warn('getUserPushToken error', uid, e);
+    return null;
+  }
+}
+
+/**
+ * Sends an Expo push notification (single token). Silent fail on invalid token.
+ */
+async function sendExpoPush({ token, title, body, data }) {
+  if (!token) return;
+  try {
+    const res = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: token, title, body, data }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.warn('Expo push send failed', res.status, text);
+    }
+  } catch (e) {
+    console.warn('sendExpoPush error', e);
+  }
+}
+
+async function sendPushToUser(uid, payload) {
+  const token = await getUserPushToken(uid);
+  if (!token) return;
+  await sendExpoPush({ token, ...payload });
+}
 
 /**
  * Trigger: onCreate of a message document
@@ -45,6 +88,34 @@ export const onMessageCreate = functions.firestore
       }
       tx.update(chatRef, updates);
     });
+
+    // Push notification to the other participant (fire & forget outside transaction)
+    try {
+      const chatSnap = await chatRef.get();
+      if (chatSnap.exists) {
+        const chatData = chatSnap.data() || {};
+        const participants = chatData.participants || [];
+        const otherId = participants.find(p => p !== senderId);
+        if (otherId) {
+          // Fetch sender display name for nicer notification (fallback to 'New message')
+          let senderName = 'New message';
+            try {
+              const userSnap = await db.collection('users').doc(senderId).get();
+              if (userSnap.exists) {
+                const u = userSnap.data() || {};
+                senderName = u.displayName || u.name || senderName;
+              }
+            } catch (e) { /* ignore */ }
+          await sendPushToUser(otherId, {
+            title: senderName,
+            body: msg.text ? (msg.text.length > 80 ? msg.text.slice(0,77)+'...' : msg.text) : 'Sent you a message',
+            data: { type: 'chat.message', chatId, senderId },
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('onMessageCreate push error', e);
+    }
     return null;
   });
 
@@ -77,3 +148,58 @@ export const markChatRead = functions.https.onCall(async (data, context) => {
   });
   return { ok: true };
 });
+
+// --- Session Notifications ------------------------------------------------------
+/**
+ * Notify client when a coach creates a session targeting them.
+ */
+export const onSessionCreate = functions.firestore
+  .document('sessions/{sessionId}')
+  .onCreate(async (snap) => {
+    const session = snap.data() || {};
+    if (!session.clientId || !session.coachId) return null;
+    try {
+      await sendPushToUser(session.clientId, {
+        title: 'New Session Scheduled',
+        body: session.title ? `${session.title} scheduled` : 'You have a new coaching session',
+        data: { type: 'session.create', sessionId: snap.id },
+      });
+    } catch (e) {
+      console.warn('onSessionCreate push error', e);
+    }
+    return null;
+  });
+
+/**
+ * Notify participant on significant session status change (confirm, cancel, complete)
+ */
+export const onSessionUpdate = functions.firestore
+  .document('sessions/{sessionId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data() || {};
+    const after = change.after.data() || {};
+    const { sessionId } = context.params;
+    // Detect status change
+    if (before.status === after.status) return null;
+    const significant = ['confirmed','cancelled','completed'];
+    if (!significant.includes(after.status)) return null;
+    // Decide who to notify: if client confirmed -> coach; if coach cancelled/completed -> client; if client cancelled -> coach
+    const targets = [];
+    if (after.status === 'confirmed') {
+      if (after.coachId) targets.push(after.coachId);
+    } else if (after.status === 'cancelled') {
+      // Whoever didn't initiate cancellation should be notified. Hard to know initiator; notify both but skip duplicates.
+      if (after.coachId) targets.push(after.coachId);
+      if (after.clientId) targets.push(after.clientId);
+    } else if (after.status === 'completed') {
+      if (after.clientId) targets.push(after.clientId);
+    }
+    const uniqueTargets = [...new Set(targets.filter(Boolean))];
+    await Promise.all(uniqueTargets.map(uid => sendPushToUser(uid, {
+      title: 'Session Update',
+      body: `Session ${after.title || ''} ${after.status}`.trim(),
+      data: { type: 'session.update', sessionId },
+    })));
+    return null;
+  });
+

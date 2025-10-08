@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { firebaseAuth, db } from "./firebaseApp";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { initPushTokenFlow } from './notifications';
 
 // Pretty error messages
 const niceError = (e) => {
@@ -105,5 +106,11 @@ export async function getFirebaseIdTokenIfLoggedIn(forceRefresh = false) {
 
 // Optional: subscribe from anywhere
 export function subscribeAuth(cb) {
-  return onAuthStateChanged(firebaseAuth, cb); // cb(user|null)
+  return onAuthStateChanged(firebaseAuth, async (user) => {
+    cb(user);
+    if (user) {
+      // Fire and forget push token registration
+      try { await initPushTokenFlow(); } catch(e) { console.warn('Push token init failed', e); }
+    }
+  }); // cb(user|null)
 }

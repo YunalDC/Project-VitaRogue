@@ -32,6 +32,7 @@ import {
   limit,
   startAfter,
   getDocs,
+  onSnapshot as onDocSnapshot,
 } from "firebase/firestore";
 
 const BG = "#0B1220";
@@ -52,6 +53,11 @@ export default function ChatScreen({ route, navigation }) {
   const [currentUserId, setCurrentUserId] = useState(null);
   const [myRole, setMyRole] = useState('user');
   const [loadingMore, setLoadingMore] = useState(false);
+  const [chatMeta, setChatMeta] = useState(null); // includes lastReadAt, typing map
+  const [pendingMessages, setPendingMessages] = useState([]); // optimistic/pending/error
+  const [otherTyping, setOtherTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
+  const lastTypedRef = useRef(0);
   const flatListRef = useRef(null);
   const PAGE_SIZE = 40;
 
@@ -74,6 +80,27 @@ export default function ChatScreen({ route, navigation }) {
     }, err => { console.error('[ChatScreen] listen error', err); setLoading(false); });
     return () => unsub();
   }, [chatId, markMessagesAsRead]);
+
+  // Listen to chat metadata (typing, lastReadAt)
+  useEffect(() => {
+    if (!chatId) return;
+    const chatRef = doc(db, 'chats', chatId);
+    const unsub = onDocSnapshot(chatRef, snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setChatMeta(data);
+        // Determine other typing
+        const me = getAuth().currentUser?.uid;
+        if (me && data?.typing) {
+          const otherId = Object.keys(data.typing).find(k => k !== me);
+            setOtherTyping(!!(otherId && data.typing[otherId]));
+        } else {
+          setOtherTyping(false);
+        }
+      }
+    });
+    return () => unsub();
+  }, [chatId]);
 
   useEffect(() => {
     // Auto-repair participant details if missing, placeholder, or outdated
@@ -121,6 +148,11 @@ export default function ChatScreen({ route, navigation }) {
     setInputText("");
     setSending(true);
 
+    // optimistic message
+    const tempId = `temp_${Date.now()}`;
+    const optimistic = { id: tempId, text: messageText, senderId: currentUserId, timestamp: { toDate: () => new Date() }, _optimistic: true, _error: false };
+    setPendingMessages(prev => [...prev, optimistic]);
+
     try {
       const messagesRef = collection(db, 'chats', chatId, 'messages');
       await addDoc(messagesRef, { text: messageText, senderId: currentUserId, timestamp: serverTimestamp() });
@@ -129,8 +161,14 @@ export default function ChatScreen({ route, navigation }) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
+      // remove optimistic once real snapshot brings the message (simple timeout cleanup)
+      setTimeout(() => {
+        setPendingMessages(prev => prev.filter(m => m.id !== tempId));
+      }, 4000);
     } catch (error) {
       console.error("Error sending message:", error);
+      // mark optimistic failed
+      setPendingMessages(prev => prev.map(m => m.id === tempId ? { ...m, _error: true } : m));
     } finally {
       setSending(false);
     }
@@ -169,12 +207,30 @@ export default function ChatScreen({ route, navigation }) {
 
   const renderMessage = ({ item, index }) => {
     const isCurrentUser = item.senderId === currentUserId;
+    const isOptimistic = item._optimistic;
+    const failed = item._error;
     const showTimestamp =
       index === 0 ||
       (messages[index - 1] &&
         Math.abs(
           item.timestamp?.toMillis() - messages[index - 1].timestamp?.toMillis()
         ) > 300000); // 5 minutes
+
+    // Determine read receipt for last outgoing message
+    let showSeen = false;
+    if (isCurrentUser && !isOptimistic && !failed) {
+      const myOutgoing = [...messages].filter(m => m.senderId === currentUserId);
+      const lastOutgoing = myOutgoing[myOutgoing.length - 1];
+      if (lastOutgoing && lastOutgoing.id === item.id && chatMeta?.lastReadAt) {
+        const otherId = (chatMeta.participants || []).find(p => p !== currentUserId);
+        const otherReadTs = chatMeta.lastReadAt?.[otherId];
+        if (otherReadTs && item.timestamp?.toMillis) {
+          const msgTs = item.timestamp.toMillis();
+          const readMillis = (otherReadTs.toMillis ? otherReadTs.toMillis() : Date.now());
+          if (readMillis >= msgTs) showSeen = true;
+        }
+      }
+    }
 
     return (
       <View style={styles.messageContainer}>
@@ -190,6 +246,8 @@ export default function ChatScreen({ route, navigation }) {
           style={[
             styles.messageBubble,
             isCurrentUser ? styles.myMessage : styles.theirMessage,
+            isOptimistic && { opacity: 0.6 },
+            failed && { borderWidth: 1, borderColor: '#ef4444' },
           ]}
         >
           <Text
@@ -200,10 +258,57 @@ export default function ChatScreen({ route, navigation }) {
           >
             {item.text}
           </Text>
+          {failed && (
+            <TouchableOpacity onPress={() => retrySend(item)} style={{ marginTop: 4 }}>
+              <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Failed. Tap to retry.</Text>
+            </TouchableOpacity>
+          )}
+          {showSeen && (
+            <Text style={{ color: '#155e75', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Seen</Text>
+          )}
         </View>
       </View>
     );
   };
+
+  const retrySend = async (msg) => {
+    if (!msg?._error) return;
+    setPendingMessages(prev => prev.map(m => m.id === msg.id ? { ...m, _error: false } : m));
+    try {
+      const messagesRef = collection(db, 'chats', chatId, 'messages');
+      await addDoc(messagesRef, { text: msg.text, senderId: currentUserId, timestamp: serverTimestamp() });
+      setPendingMessages(prev => prev.filter(m => m.id !== msg.id));
+    } catch(e) {
+      setPendingMessages(prev => prev.map(m => m.id === msg.id ? { ...m, _error: true } : m));
+    }
+  };
+
+  // Typing indicator logic
+  const updateTyping = useCallback(async (active) => {
+    try {
+      const me = getAuth().currentUser?.uid; if (!me) return;
+      const chatRef = doc(db, 'chats', chatId);
+      await updateDoc(chatRef, { [`typing.${me}`]: active });
+    } catch(_) {}
+  }, [chatId]);
+
+  const handleInputChange = (text) => {
+    setInputText(text);
+    const now = Date.now();
+    lastTypedRef.current = now;
+    updateTyping(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      if (Date.now() - lastTypedRef.current >= 2500) updateTyping(false);
+    }, 2500);
+  };
+
+  useEffect(() => {
+    return () => { // cleanup typing state
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      updateTyping(false);
+    };
+  }, [updateTyping]);
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -246,9 +351,9 @@ export default function ChatScreen({ route, navigation }) {
             <ActivityIndicator size="large" color={SUCCESS} />
           </View>
         ) : (
-          <FlatList
-             ref={flatListRef}
-             data={messages}
+       <FlatList
+         ref={flatListRef}
+         data={[...messages, ...pendingMessages]}
              renderItem={renderMessage}
              keyExtractor={(item) => item.id}
              contentContainerStyle={styles.messagesContainer}
@@ -281,10 +386,15 @@ export default function ChatScreen({ route, navigation }) {
               placeholder="Type a message..."
               placeholderTextColor={MUTED}
               value={inputText}
-              onChangeText={setInputText}
+              onChangeText={handleInputChange}
               multiline
               maxLength={1000}
             />
+            {otherTyping && (
+              <View style={{ position: 'absolute', left: 16, bottom: -18 }}>
+                <Text style={{ color: MUTED, fontSize: 11 }}>Typing…</Text>
+              </View>
+            )}
             <TouchableOpacity
               style={[
                 styles.sendButton,

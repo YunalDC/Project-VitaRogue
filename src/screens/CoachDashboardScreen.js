@@ -90,12 +90,12 @@ const DEFAULT_COACH = {
 };
 
 const METRICS = {
-  activeClients: 24,
-  upcomingSessions: 8,
-  weeklyRevenue: 2850.0,
-  clientSatisfaction: 96,
-  completedSessions: 42,
-  cancelledSessions: 2,
+  activeClients: 24, // SAMPLE
+  upcomingSessions: 0, // dynamic
+  weeklyRevenue: 2850.0, // SAMPLE
+  clientSatisfaction: 96, // SAMPLE
+  completedSessions: 42, // SAMPLE
+  cancelledSessions: 2, // SAMPLE
 };
 
 const CLIENTS = [
@@ -253,7 +253,8 @@ const ProgressBar = ({ progress = 0, tint = COLORS.primary, height = 8 }) => (
   </View>
 );
 
-const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPress, ms }) => (
+// Unified MetricCard with optional SAMPLE badge
+const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPress, ms, sample }) => (
   <TouchableOpacity
     style={[
       styles.metricCard,
@@ -264,48 +265,51 @@ const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPr
       },
     ]}
     onPress={onPress}
-    activeOpacity={0.7}
+    activeOpacity={onPress ? 0.7 : 1}
   >
     <View style={styles.metricHeader}>
       <Text style={[styles.metricTitle, { fontSize: ms(13) }]}>{title}</Text>
-      <Ionicons name={icon} size={ms(20)} color={color} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        {sample ? (
+          <View style={{ backgroundColor: '#475569', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+            <Text style={{ color: '#cbd5e1', fontSize: ms(9), fontWeight: '700' }}>SAMPLE</Text>
+          </View>
+        ) : null}
+        <Ionicons name={icon} size={ms(20)} color={color} />
+      </View>
     </View>
     <Text style={[styles.metricValue, { fontSize: ms(24), color }]}>
-      {typeof value === "number" && value >= 1000 ? value.toLocaleString() : value}
+      {typeof value === 'number' && value >= 1000 ? value.toLocaleString() : value}
     </Text>
-    <Text style={[styles.metricSubtitle, { fontSize: ms(11) }]}>{subtitle}</Text>
+    {!!subtitle && (
+      <Text style={[styles.metricSubtitle, { fontSize: ms(11) }]}>{subtitle}</Text>
+    )}
   </TouchableOpacity>
 );
 
+// Status chip (filter) component
 const StatusChip = ({ status, onPress, isSelected, ms }) => {
   const statusInfo = STATUS_FILTERS.find(s => s.id === status) || STATUS_FILTERS[0];
-
   return (
     <TouchableOpacity
-      style={[
-        styles.statusChip,
-        {
-          paddingVertical: ms(6),
-          paddingHorizontal: ms(12),
-          borderRadius: ms(16),
-          backgroundColor: isSelected ? statusInfo.color : statusInfo.color + "20",
-          borderColor: statusInfo.color,
-          borderWidth: 1,
-          marginRight: ms(8),
-        },
-      ]}
+      style={{
+        paddingVertical: ms(6),
+        paddingHorizontal: ms(12),
+        borderRadius: ms(16),
+        backgroundColor: isSelected ? statusInfo.color : statusInfo.color + '20',
+        borderColor: statusInfo.color,
+        borderWidth: 1,
+        marginRight: ms(8),
+      }}
       onPress={onPress}
       activeOpacity={0.7}
     >
       <Text
-        style={[
-          styles.statusChipText,
-          {
-            fontSize: ms(12),
-            color: isSelected ? "white" : statusInfo.color,
-            fontWeight: isSelected ? "600" : "500",
-          },
-        ]}
+        style={{
+          fontSize: ms(12),
+          color: isSelected ? '#fff' : statusInfo.color,
+          fontWeight: isSelected ? '600' : '500',
+        }}
       >
         {statusInfo.label}
       </Text>
@@ -571,6 +575,13 @@ export default function CoachDashboardScreen({ navigation }) {
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [upcomingSessions, setUpcomingSessions] = useState(0);
+  useEffect(()=>{
+    if(!coach?.id && !coach?.uid) return; // wait for coach profile
+    const uid = coach.uid || coach.id;
+    const unsub = listenUpcomingSessions(uid, { onChange: list => setUpcomingSessions(list.length) });
+    return unsub;
+  },[coach?.uid, coach?.id]);
 
   const { coach } = useCoachProfile();
   const info = coach ? {
@@ -1068,7 +1079,7 @@ export default function CoachDashboardScreen({ navigation }) {
             />
             <MetricCard
               title="Upcoming Sessions"
-              value={METRICS.upcomingSessions}
+              value={upcomingSessions}
               subtitle="Today & tomorrow"
               icon="calendar-outline"
               color={COLORS.secondary}
@@ -1081,7 +1092,6 @@ export default function CoachDashboardScreen({ navigation }) {
               subtitle="This week's earnings"
               icon="card-outline"
               color={COLORS.success}
-              onPress={() => onMetricTap("weeklyRevenue")}
               ms={ms}
             />
             <MetricCard
@@ -1090,7 +1100,6 @@ export default function CoachDashboardScreen({ navigation }) {
               subtitle="Average rating"
               icon="heart-outline"
               color={COLORS.accent}
-              onPress={() => onMetricTap("clientSatisfaction")}
               ms={ms}
             />
           </View>

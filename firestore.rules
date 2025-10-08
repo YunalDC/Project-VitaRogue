@@ -18,6 +18,10 @@ service cloud.firestore {
       match /{sub=**} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+      // Explicit nutrition plans subcollection (assigned plans)
+      match /nutritionPlans/{planId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // ---- COACHES ----
@@ -26,6 +30,19 @@ service cloud.firestore {
       allow read: if true;
       // Only the coach themselves can create/update their doc.
       allow create, update, delete: if request.auth != null && request.auth.uid == coachId;
+      // Coach-owned nutrition templates
+      match /nutritionTemplates/{templateId} {
+        allow read: if request.auth != null; // any authenticated user can view template summaries
+        allow create, update, delete: if request.auth != null && request.auth.uid == coachId;
+      }
+    }
+
+    // ---- SESSIONS ----
+    match /sessions/{sessionId} {
+      allow read: if request.auth != null && (request.auth.uid == resource.data.coachId || request.auth.uid == resource.data.clientId);
+      allow create: if request.auth != null && request.resource.data.coachId == request.auth.uid && request.resource.data.clientId is string;
+      allow update: if request.auth != null && request.auth.uid == resource.data.coachId;
+      allow delete: if false; // prevent deletes; use status cancellation
     }
 
     // ---- CHATS ROOT ----
@@ -80,9 +97,18 @@ service cloud.firestore {
     function validateChatUpdate(newData, oldData) {
       // Allow server (functions) to add lastReadAt / update counts / lastMessage / updatedAt only.
       // Participants immutable.
+      // Permit optional 'typing' map<string,bool>
       return newData.participants == oldData.participants
              && validateUnread(newData.unreadCount)
-             && validateLastMessage(newData.lastMessage);
+             && validateLastMessage(newData.lastMessage)
+             && (newData.typing == null || newData.typing is map);
+    }
+
+    // ---- ANALYTICS ----
+    match /analytics/{coachId} {
+      allow read: if request.auth != null && request.auth.uid == coachId; // private to coach
+      allow create, update: if request.auth != null && request.auth.uid == coachId;
+      allow delete: if false;
     }
   }
 }
