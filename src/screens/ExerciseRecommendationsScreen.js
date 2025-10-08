@@ -17,6 +17,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { WORKOUT_DATA } from "../data/workoutData";
+import { useUserDoc } from "../hooks/useUserDoc";
 
 const { width } = Dimensions.get("window");
 
@@ -36,106 +38,129 @@ export default function ExerciseRecommendationsScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [isLoading, setIsLoading] = useState(false);
+  const { userDoc } = useUserDoc();
 
-  // Mock: calorie status
-  const caloriesSurplus = 300; // positive = surplus, negative = deficit
-  const isOnTrack = false;
+  // Get user's calorie data and goals
+  const userGoal = userDoc?.weightGoal || userDoc?.goal || "Weight Loss";
+  const dailyCalorieGoal = userDoc?.calorieGoal || userDoc?.dailyCalories || 2000;
+  const todayCalories = userDoc?.todayCalories || 0; // This would come from daily tracking
+  
+  // Calculate calorie status
+  const caloriesSurplus = todayCalories - dailyCalorieGoal;
+  const isOnTrack = Math.abs(caloriesSurplus) <= 100; // Within 100 calories is "on track"
 
-  // Mock categories
+  // Map user goals to workout categories
+  const goalToCategory = {
+    "Weight Loss": "Weight Loss",
+    "Weight Gain": "Weight Gain", 
+    "Muscle Building": "Weight Gain",
+    "Stamina": "Stamina",
+    "Good Body Shape": "Good Body Shape",
+    "Flexibility": "Streach & Strengthen",
+    "Cardio": "Full Body Cardio"
+  };
+
+  // Categories based on available workout data
   const categories = [
     "All",
-    "Cardio",
-    "Strength",
-    "Flexibility",
-    "Disability-Friendly",
-    "Yoga",
-    "Sports",
+    "Weight Loss", 
+    "Weight Gain",
+    "Stamina",
+    "Good Body Shape", 
+    "Streach & Strengthen",
+    "Full Body Cardio",
+    "Dumbbell Workouts",
+    "Recovery Stretches",
+    "Morning Stretches",
+    "Hard Cardio Blast Workouts",
+    "Kettlebell Workouts"
   ];
 
-  // Mock exercises
-  const exercises = useMemo(
-    () => [
-      {
-        id: 1,
-        name: "High-Intensity Interval Training",
-        description:
-          "Burn calories fast with this intense cardio workout combining bursts of high-intensity exercise with recovery periods.",
-        caloriesBurn: 350,
-        duration: 30,
-        difficulty: "Advanced",
-        category: "Cardio",
-        isAccessible: false,
-        image:
-          "https://images.pexels.com/photos/416809/pexels-photo-416809.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-      {
-        id: 2,
-        name: "Strength Circuit Training",
-        description:
-          "Build muscle and burn calories with this full-body strength training circuit using bodyweight exercises.",
-        caloriesBurn: 280,
-        duration: 45,
-        difficulty: "Intermediate",
-        category: "Strength",
-        isAccessible: true,
-        image:
-          "https://images.pexels.com/photos/1552252/pexels-photo-1552252.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-      {
-        id: 3,
-        name: "Gentle Yoga Flow",
-        description:
-          "Improve flexibility and mindfulness with this accessible yoga sequence suitable for all fitness levels.",
-        caloriesBurn: 120,
-        duration: 60,
-        difficulty: "Beginner",
-        category: "Flexibility",
-        isAccessible: true,
-        image:
-          "https://images.pexels.com/photos/3822622/pexels-photo-3822622.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-      {
-        id: 4,
-        name: "Chair-Based Cardio",
-        description:
-          "Effective cardio workout designed for wheelchair users and those with mobility limitations.",
-        caloriesBurn: 200,
-        duration: 25,
-        difficulty: "Beginner",
-        category: "Disability-Friendly",
-        isAccessible: true,
-        image:
-          "https://images.pexels.com/photos/6111616/pexels-photo-6111616.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-      {
-        id: 5,
-        name: "Running Intervals",
-        description:
-          "Boost your cardiovascular fitness with alternating running and walking intervals.",
-        caloriesBurn: 400,
-        duration: 35,
-        difficulty: "Intermediate",
-        category: "Cardio",
-        isAccessible: false,
-        image:
-          "https://images.pexels.com/photos/2402777/pexels-photo-2402777.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-      {
-        id: 6,
-        name: "Resistance Band Workout",
-        description:
-          "Full-body strength training using resistance bands, perfect for home workouts.",
-        caloriesBurn: 220,
-        duration: 40,
-        difficulty: "Beginner",
-        category: "Strength",
-        isAccessible: true,
-        image:
-          "https://images.pexels.com/photos/4662438/pexels-photo-4662438.jpeg?auto=compress&cs=tinysrgb&w=800",
-      },
-    ],
-    []
-  );
+  // Get exercises based on user's goal and selected category
+  const exercises = useMemo(() => {
+    let targetCategory = selectedCategory;
+    
+    // If "All" is selected, prioritize user's goal category
+    if (selectedCategory === "All") {
+      targetCategory = goalToCategory[userGoal] || "Weight Loss";
+    }
+    
+    const workoutCategory = WORKOUT_DATA[targetCategory] || WORKOUT_DATA["Weight Loss"];
+    
+    // Transform workout data to match expected format
+    return workoutCategory.map(exercise => ({
+      id: exercise.id,
+      name: exercise.name,
+      description: exercise.description,
+      caloriesBurn: getCalorieBurnEstimate(exercise, userDoc),
+      duration: getDurationEstimate(exercise),
+      difficulty: getDifficultyLevel(exercise),
+      category: targetCategory,
+      isAccessible: checkAccessibility(exercise),
+      image: exercise.image,
+      instructions: exercise.instructions,
+      targetedMuscles: exercise.targeted_muscles,
+      positiveEffects: exercise.positive_effects
+    }));
+  }, [selectedCategory, userGoal, userDoc]);
+
+  // Helper functions
+  function getCalorieBurnEstimate(exercise, userDoc) {
+    const baseCalories = {
+      "Weight Loss": 300,
+      "Weight Gain": 250,
+      "Stamina": 350,
+      "Good Body Shape": 280,
+      "Streach & Strengthen": 150,
+      "Full Body Cardio": 400,
+      "Dumbbell Workouts": 320,
+      "Recovery Stretches": 80,
+      "Morning Stretches": 100,
+      "Hard Cardio Blast Workouts": 500,
+      "Kettlebell Workouts": 380
+    };
+    
+    const userWeight = userDoc?.weight || 70;
+    const weightMultiplier = userWeight / 70; // Base weight 70kg
+    
+    return Math.round((baseCalories[exercise.category] || 250) * weightMultiplier);
+  }
+
+  function getDurationEstimate(exercise) {
+    const durationMap = {
+      "Weight Loss": 25,
+      "Weight Gain": 45,
+      "Stamina": 35,
+      "Good Body Shape": 40,
+      "Streach & Strengthen": 20,
+      "Full Body Cardio": 30,
+      "Dumbbell Workouts": 50,
+      "Recovery Stretches": 15,
+      "Morning Stretches": 12,
+      "Hard Cardio Blast Workouts": 20,
+      "Kettlebell Workouts": 35
+    };
+    
+    return durationMap[exercise.category] || 30;
+  }
+
+  function getDifficultyLevel(exercise) {
+    const hardCategories = ["Hard Cardio Blast Workouts", "Kettlebell Workouts", "Weight Gain"];
+    const easyCategories = ["Recovery Stretches", "Morning Stretches", "Streach & Strengthen"];
+    
+    if (hardCategories.includes(exercise.category)) return "Advanced";
+    if (easyCategories.includes(exercise.category)) return "Beginner";
+    return "Intermediate";
+  }
+
+  function checkAccessibility(exercise) {
+    const accessibleCategories = [
+      "Recovery Stretches", 
+      "Morning Stretches", 
+      "Streach & Strengthen"
+    ];
+    return accessibleCategories.includes(exercise.category);
+  }
 
   // Mock nearby gyms
   const nearbyGyms = useMemo(
@@ -176,54 +201,108 @@ export default function ExerciseRecommendationsScreen({ navigation }) {
 
   // ----- Helpers
   const filteredExercises = useMemo(() => {
-    if (selectedCategory === "All") return exercises;
-    return exercises.filter(
-      (e) => e.category.toLowerCase() === selectedCategory.toLowerCase()
-    );
-  }, [selectedCategory, exercises]);
+    if (selectedCategory === "All") {
+      // Show recommended exercises based on user goal
+      const recommendedCategory = goalToCategory[userGoal] || "Weight Loss";
+      return WORKOUT_DATA[recommendedCategory]?.slice(0, 8).map(exercise => ({
+        id: exercise.id,
+        name: exercise.name,
+        description: exercise.description,
+        caloriesBurn: getCalorieBurnEstimate({ category: recommendedCategory }, userDoc),
+        duration: getDurationEstimate({ category: recommendedCategory }),
+        difficulty: getDifficultyLevel({ category: recommendedCategory }),
+        category: recommendedCategory,
+        isAccessible: checkAccessibility({ category: recommendedCategory }),
+        image: exercise.image,
+        instructions: exercise.instructions,
+        targetedMuscles: exercise.targeted_muscles,
+        positiveEffects: exercise.positive_effects
+      })) || [];
+    }
+    
+    return WORKOUT_DATA[selectedCategory]?.map(exercise => ({
+      id: exercise.id,
+      name: exercise.name,
+      description: exercise.description,
+      caloriesBurn: getCalorieBurnEstimate({ category: selectedCategory }, userDoc),
+      duration: getDurationEstimate({ category: selectedCategory }),
+      difficulty: getDifficultyLevel({ category: selectedCategory }),
+      category: selectedCategory,
+      isAccessible: checkAccessibility({ category: selectedCategory }),
+      image: exercise.image,
+      instructions: exercise.instructions,
+      targetedMuscles: exercise.targeted_muscles,
+      positiveEffects: exercise.positive_effects
+    })) || [];
+  }, [selectedCategory, userGoal, userDoc]);
 
   function showToast(msg) {
-    if (Platform.OS === "android") {
-      // simple fallback using Alert to keep deps minimal
-      Alert.alert("Info", msg);
-    } else {
-      Alert.alert("Info", msg);
-    }
+    Alert.alert("Info", msg);
   }
 
   async function refreshRecommendations() {
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 2000));
+    // Simulate API call to refresh user data
+    await new Promise((r) => setTimeout(r, 1500));
     setIsLoading(false);
     showToast("Recommendations updated based on your latest activity!");
   }
 
   function startWorkout(ex) {
-    Alert.alert(
-      `Start ${ex.name}`,
-      `Ready to burn ${ex.caloriesBurn} calories in ${ex.duration} minutes?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Start Now",
-          onPress: () =>
-            Alert.alert(
-              ex.name,
-              `Workout timer would start here.\nDuration: ${ex.duration} minutes`
-            ),
-        },
-      ]
-    );
+    // Navigate to workout detail screen instead of showing alert
+    navigation.navigate("WorkoutDetailScreen", { exercise: ex });
+  }
+
+  function startWorkoutTimer(ex) {
+    // Navigate directly to timer if user wants to skip details
+    navigation.navigate("WorkoutTimerScreen", { exercise: ex });
+  }
+
+  function completeWorkout(ex) {
+    // This would be called from timer screen, but keeping for reference
+    navigation.navigate("WorkoutCompletionScreen", { 
+      exercise: ex,
+      timeCompleted: ex.duration * 60,
+      setsCompleted: 3
+    });
+  }
+
+  function showExerciseDetails(ex) {
+    // Navigate to detail screen
+    navigation.navigate("WorkoutDetailScreen", { exercise: ex });
   }
 
   function showExerciseOptions(ex) {
     setSheet({
       title: ex.name,
       options: [
-        { icon: "heart-outline", title: "Save to Favorites", onPress: () => {} },
-        { icon: "share-outline", title: "Share Exercise", onPress: () => {} },
-        { icon: "create-outline", title: "Modify Duration", onPress: () => {} },
-        { icon: "information-circle-outline", title: "View Details", onPress: () => {} },
+        { 
+          icon: "heart-outline", 
+          title: "Save to Favorites", 
+          onPress: () => {
+            // Save to user favorites
+            showToast("Added to favorites!");
+          }
+        },
+        { 
+          icon: "share-outline", 
+          title: "Share Exercise", 
+          onPress: () => {
+            showToast("Exercise shared!");
+          }
+        },
+        { 
+          icon: "create-outline", 
+          title: "Modify Duration", 
+          onPress: () => {
+            Alert.alert("Modify Duration", "Feature coming soon!");
+          }
+        },
+        { 
+          icon: "information-circle-outline", 
+          title: "View Details", 
+          onPress: () => showExerciseDetails(ex)
+        },
       ],
     });
     setSheetVisible(true);
@@ -233,21 +312,45 @@ export default function ExerciseRecommendationsScreen({ navigation }) {
     setSheet({
       title: "Filter Options",
       options: [
-        { icon: "speedometer-outline", title: "Difficulty Level • All levels", onPress: () => {} },
-        { icon: "time-outline", title: "Duration • Any duration", onPress: () => {} },
-        { icon: "barbell-outline", title: "Equipment • No equipment", onPress: () => {} },
-        { icon: "accessibility-outline", title: "Accessibility • Include accessible", onPress: () => {} },
+        { 
+          icon: "speedometer-outline", 
+          title: `Difficulty Level • ${getDifficultyFilter()}`, 
+          onPress: () => showToast("Difficulty filter coming soon!")
+        },
+        { 
+          icon: "time-outline", 
+          title: "Duration • Any duration", 
+          onPress: () => showToast("Duration filter coming soon!")
+        },
+        { 
+          icon: "barbell-outline", 
+          title: "Equipment • No equipment", 
+          onPress: () => showToast("Equipment filter coming soon!")
+        },
+        { 
+          icon: "accessibility-outline", 
+          title: "Accessibility • Include accessible", 
+          onPress: () => {
+            setSelectedCategory("Recovery Stretches");
+            setSheetVisible(false);
+          }
+        },
       ],
     });
     setSheetVisible(true);
   }
 
+  function getDifficultyFilter() {
+    const userLevel = userDoc?.fitnessLevel || "Beginner";
+    return userLevel;
+  }
+
   function exploreMaintenanceExercises() {
-    setSelectedCategory("Flexibility");
+    setSelectedCategory("Recovery Stretches");
   }
 
   function viewAllGyms() {
-    Alert.alert("Nearby Gyms", "Opening map view with all nearby fitness centers…");
+    navigation.navigate("GymDiscovery");
   }
 
   // ----- BottomSheet (for options/filters)
@@ -304,7 +407,7 @@ export default function ExerciseRecommendationsScreen({ navigation }) {
           showsVerticalScrollIndicator={false}
         >
           {/* Calorie status card */}
-          <CalorieStatusCard caloriesSurplus={caloriesSurplus} isOnTrack={isOnTrack} />
+          <CalorieStatusCard caloriesSurplus={caloriesSurplus} isOnTrack={isOnTrack} userGoal={userGoal} />
 
           {/* Conditional content */}
           {caloriesSurplus <= 0 && isOnTrack ? (
@@ -377,7 +480,7 @@ export default function ExerciseRecommendationsScreen({ navigation }) {
 
 /* --------------------------- Subcomponents --------------------------- */
 
-function CalorieStatusCard({ caloriesSurplus = 0, isOnTrack = false }) {
+function CalorieStatusCard({ caloriesSurplus = 0, isOnTrack = false, userGoal = "Weight Loss" }) {
   const isSurplus = caloriesSurplus > 0;
   const bg = isSurplus ? "#052e1b" : "#111827";
   const tint = isSurplus ? ACCENT : INFO;

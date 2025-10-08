@@ -43,6 +43,9 @@ import FoodScanningScreen from "./src/screens/FoodScanningScreen";
 import FoodConfirmationScreen from "./src/screens/FoodConfirmationScreen";
 import FoodDetailsScreen from "./src/screens/FoodDetailsScreen";
 import ExerciseRecommendationsScreen from "./src/screens/ExerciseRecommendationsScreen";
+import WorkoutDetailScreen from "./src/screens/WorkoutDetailScreen";
+import WorkoutTimerScreen from "./src/screens/WorkoutTimerScreen";
+import WorkoutCompletionScreen from "./src/screens/WorkoutCompletionScreen";
 import CoachMessagesScreen from "./src/screens/CoachMessagesScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import HealthyDishesScreen from "./src/screens/HealthyDishes";
@@ -151,6 +154,9 @@ function MainStack() {
       <Stack.Screen name="FoodConfirmation" component={FoodConfirmationScreen} />
       <Stack.Screen name="FoodDetails" component={FoodDetailsScreen} />
       <Stack.Screen name="ExerciseRecommendations" component={ExerciseRecommendationsScreen} />
+      <Stack.Screen name="WorkoutDetailScreen" component={WorkoutDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="WorkoutTimerScreen" component={WorkoutTimerScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="WorkoutCompletionScreen" component={WorkoutCompletionScreen} options={{ headerShown: false }} />
       <Stack.Screen name="CoachMessages" component={CoachMessagesScreen} />
       <Stack.Screen name="ChatList" component={ChatListScreen} />
       <Stack.Screen name="Chat" component={ChatScreen} />
