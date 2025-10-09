@@ -1,4 +1,5 @@
-// CoachAccountSettingsScreen.js - FIXED VERSION
+// CoachAccountSettingsScreen.js for the Coaches and this code connects with the database and should be able to allow the coach to update their account settings.
+
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -41,9 +42,6 @@ export default function CoachAccountSettingsScreen({ navigation }) {
   const [specializations, setSpecializations] = useState("");
   const [experience, setExperience] = useState("");
   
-  // Track original data for change detection
-  const [originalData, setOriginalData] = useState({});
-  
   // UI state
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,27 +68,13 @@ export default function CoachAccountSettingsScreen({ navigation }) {
           const data = coachSnap.data();
           console.log("📊 Coach data loaded:", data);
           
-          const loadedData = {
-            fullName: data.fullName || "",
-            username: data.username || "",
-            emergencyContact: data.emergencyContact || "",
-            gymAffiliation: data.gymAffiliation || "",
-            nic: data.nic || "",
-            specializations: data.specializations || "",
-            experience: data.experience?.toString() || "",
-          };
-
-          // Set form fields
-          setFullName(loadedData.fullName);
-          setUsername(loadedData.username);
-          setEmergencyContact(loadedData.emergencyContact);
-          setGymAffiliation(loadedData.gymAffiliation);
-          setNic(loadedData.nic);
-          setSpecializations(loadedData.specializations);
-          setExperience(loadedData.experience);
-
-          // Store original data for comparison
-          setOriginalData(loadedData);
+          setFullName(data.fullName || "");
+          setUsername(data.username || "");
+          setEmergencyContact(data.emergencyContact || "");
+          setGymAffiliation(data.gymAffiliation || "");
+          setNic(data.nic || "");
+          setSpecializations(data.specializations || "");
+          setExperience(data.experience || "");
         } else {
           console.log("⚠️ No coach document found");
         }
@@ -105,25 +89,10 @@ export default function CoachAccountSettingsScreen({ navigation }) {
     loadCoachData();
   }, []);
 
-  // Track changes - FIXED: Compare with original data
+  // Track changes
   useEffect(() => {
-    if (!originalData.fullName && !fullName) {
-      // Don't mark as changed if both are empty (initial state)
-      setHasChanges(false);
-      return;
-    }
-
-    const changed = 
-      fullName !== originalData.fullName ||
-      username !== originalData.username ||
-      emergencyContact !== originalData.emergencyContact ||
-      gymAffiliation !== originalData.gymAffiliation ||
-      nic !== originalData.nic ||
-      specializations !== originalData.specializations ||
-      experience !== originalData.experience;
-    
-    setHasChanges(changed);
-  }, [fullName, username, emergencyContact, gymAffiliation, nic, specializations, experience, originalData]);
+    setHasChanges(true);
+  }, [fullName, username, emergencyContact, gymAffiliation, nic, specializations, experience]);
 
   // Save changes to Firebase
   const handleSave = async () => {
@@ -138,21 +107,18 @@ export default function CoachAccountSettingsScreen({ navigation }) {
       return;
     }
 
-    // FIXED: Emergency contact validation with space removal
     if (emergencyContact && !/^\d{10}$/.test(emergencyContact.replace(/\s/g, ""))) {
       Alert.alert("Validation Error", "Emergency contact must be a valid 10-digit phone number");
       return;
     }
 
-    // FIXED: NIC validation with proper parentheses
-    if (nic && !/^(\d{9}[vVxX]|\d{12})$/.test(nic.replace(/\s/g, ""))) {
+    if (nic && !/^\d{9}[vVxX]|\d{12}$/.test(nic.replace(/\s/g, ""))) {
       Alert.alert("Validation Error", "NIC must be in format: 123456789V or 123456789012");
       return;
     }
 
-    // FIXED: Experience validation
-    if (experience && (isNaN(experience) || parseInt(experience) < 0 || parseInt(experience) > 99)) {
-      Alert.alert("Validation Error", "Experience must be a valid number (0-99)");
+    if (experience && isNaN(experience)) {
+      Alert.alert("Validation Error", "Experience must be a number");
       return;
     }
 
@@ -163,20 +129,21 @@ export default function CoachAccountSettingsScreen({ navigation }) {
 
       const coachRef = doc(db, "coaches", user.uid);
       
-      // FIXED: Store experience as number, not string
-      const updateData = {
-        fullName: fullName.trim(),
-        username: username.trim(),
-        emergencyContact: emergencyContact.trim(),
-        gymAffiliation: gymAffiliation.trim(),
-        nic: nic.trim(),
-        specializations: specializations.trim(),
-        experience: experience.trim() ? parseInt(experience.trim()) : 0, // ✅ Number now
-        updatedAt: serverTimestamp(),
-      };
-
-      // Update /coaches/{uid}
-      await setDoc(coachRef, updateData, { merge: true });
+      // Update coach document
+      await setDoc(
+        coachRef,
+        {
+          fullName: fullName.trim(),
+          username: username.trim(),
+          emergencyContact: emergencyContact.trim(),
+          gymAffiliation: gymAffiliation.trim(),
+          nic: nic.trim(),
+          specializations: specializations.trim(),
+          experience: experience.trim(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       // Also update username in /users/{uid} for consistency
       const userRef = doc(db, "users", user.uid);
@@ -190,18 +157,6 @@ export default function CoachAccountSettingsScreen({ navigation }) {
       );
 
       console.log("✅ Coach profile updated successfully");
-
-      // Update original data to new saved state
-      setOriginalData({
-        fullName: fullName.trim(),
-        username: username.trim(),
-        emergencyContact: emergencyContact.trim(),
-        gymAffiliation: gymAffiliation.trim(),
-        nic: nic.trim(),
-        specializations: specializations.trim(),
-        experience: experience.trim(),
-      });
-
       Alert.alert("Success", "Your profile has been updated", [
         {
           text: "OK",
@@ -219,25 +174,11 @@ export default function CoachAccountSettingsScreen({ navigation }) {
     }
   };
 
-  // FIXED: Added editable prop
-  const InputField = ({ 
-    label, 
-    value, 
-    onChangeText, 
-    placeholder, 
-    keyboardType = "default", 
-    maxLength, 
-    multiline = false,
-    editable = true 
-  }) => (
+  const InputField = ({ label, value, onChangeText, placeholder, keyboardType = "default", maxLength, multiline = false }) => (
     <View style={styles.inputContainer}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
-        style={[
-          styles.input, 
-          multiline && styles.inputMultiline,
-          !editable && styles.inputDisabled
-        ]}
+        style={[styles.input, multiline && styles.inputMultiline]}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -246,7 +187,6 @@ export default function CoachAccountSettingsScreen({ navigation }) {
         maxLength={maxLength}
         multiline={multiline}
         numberOfLines={multiline ? 3 : 1}
-        editable={editable}
       />
     </View>
   );
@@ -387,9 +327,7 @@ export default function CoachAccountSettingsScreen({ navigation }) {
           ) : (
             <>
               <Ionicons name="checkmark-circle-outline" size={18} color="white" />
-              <Text style={styles.saveBtnText}>
-                {hasChanges ? "Save Changes" : "No Changes"}
-              </Text>
+              <Text style={styles.saveBtnText}>Save Changes</Text>
             </>
           )}
         </TouchableOpacity>
@@ -448,10 +386,6 @@ const styles = StyleSheet.create({
   inputMultiline: {
     height: 80,
     textAlignVertical: "top",
-  },
-  inputDisabled: {
-    backgroundColor: COLORS.card,
-    opacity: 0.6,
   },
   helperText: {
     color: COLORS.muted,

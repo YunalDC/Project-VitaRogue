@@ -11,6 +11,8 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { firebaseAuth, db } from "./src/lib/firebaseApp";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { signOut } from "firebase/auth";
 
 /* --- Auth (user) --- */
 import SignInScreen from "./src/screens/SignInScreen";
@@ -33,6 +35,7 @@ import WorkoutNutritionPlansScreen from "./src/screens/WorkoutNutritionPlansScre
 import WorkoutPlanBuilderScreen from "./src/screens/WorkoutPlanBuilderScreen";
 import NutritionPlanBuilderScreen from "./src/screens/NutritionPlanBuilderScreen";
 import UpdateCoachClientProfile from "./src/screens/UpdateCoachClientProfile";
+import CoachSettingsScreen from "./src/screens/CoachSettingsScreen";
 
 /* --- User app --- */
 import Onboarding from "./src/screens/OnboardingWizard";
@@ -66,6 +69,7 @@ import CoachPublicProfileScreen from "./src/screens/CoachPublicProfileScreen";
 import ProgressScreen from './src/screens/ProgressScreen';
 
 // Settings screens
+import CoachAccountSettingsScreen from "./src/screens/settings/CoachAccountSettingsScreen";
 import AccountSettingsScreen from "./src/screens/settings/AccountSettingsScreen";
 import ProfileGoalsSettingsScreen from "./src/screens/settings/ProfileGoalsSettingsScreen";
 import NutritionSettingsScreen from "./src/screens/settings/NutritionSettingsScreen";
@@ -151,6 +155,8 @@ function MainStack() {
       <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }} />
       
       {/* ===== Settings Screens ===== */}
+      <Stack.Screen name="CoachSettings" component={CoachSettingsScreen} options={{ headerShown: false }}/>
+      <Stack.Screen name="CoachAccountSettings" component={CoachAccountSettingsScreen} />
       <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
       <Stack.Screen name="ProfileGoalsSettings" component={ProfileGoalsSettingsScreen} />
       <Stack.Screen name="NutritionSettings" component={NutritionSettingsScreen} />
@@ -286,23 +292,33 @@ function CoachStack() {
       <Stack.Screen name="WorkoutPlanBuilder" component={WorkoutPlanBuilderScreen} />
       <Stack.Screen name="NutritionPlanBuilder" component={NutritionPlanBuilderScreen} />
       <Stack.Screen name="UpdateCoachClientProfile" component={UpdateCoachClientProfile} />
-      <Stack.Screen name="CoachSettings" component={SettingsScreen} />
+      <Stack.Screen name="CoachSettings" component={CoachSettingsScreen} />
+      
+      {/* ===== Settings Screens for Coaches ===== */}
+      <Stack.Screen name="CoachAccountSettings" component={CoachAccountSettingsScreen} />
+      <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+      <Stack.Screen name="PrivacyDataSettings" component={PrivacyDataSettingsScreen} />
+      <Stack.Screen name="SupportSettings" component={SupportSettingsScreen} />
+      <Stack.Screen name="AboutSettings" component={AboutSettingsScreen} />
+      {/* ===== End Settings Screens ===== */}
     </Stack.Navigator>
   );
 }
 
-/* Root navigator that is ALWAYS mounted */
-function RootNavigator({ authInitial = "SignIn" }) {
-  return (
-    <Root.Navigator screenOptions={{ headerShown: false }}>
-      <Root.Screen name="AuthRoot">
-  {() => <AuthStack initialRouteName={authInitial} />}
-</Root.Screen>
-      <Root.Screen name="OnboardingRoot" component={OnboardingStack} />
-      <Root.Screen name="MainRoot" component={MainStack} />
-      <Root.Screen name="CoachRoot" component={CoachStack} />
-    </Root.Navigator>
-  );
+/* Router component for direct rendering based on route */
+function Router({ routeKey, authInitial = "SignIn" }) {
+  switch (routeKey) {
+    case "auth":
+      return <AuthStack initialRouteName={authInitial} />;
+    case "onboarding":
+      return <OnboardingStack />;
+    case "main":
+      return <MainStack />;
+    case "coach":
+      return <CoachStack />;
+    default:
+      return null;
+  }
 }
 
 /* Root */
@@ -311,14 +327,37 @@ export default function App() {
   const [route, setRoute] = useState(null); // "auth" | "onboarding" | "main" | "coach"
   const [coachProfile, setCoachProfile] = useState(null);
   const [authGateTarget, setAuthGateTarget] = useState("SignIn");
-  const [navReady, setNavReady] = useState(false);
+  const [firstLaunch, setFirstLaunch] = useState(null);
 
   const navTheme = useMemo(
     () => ({ ...DefaultTheme, colors: { ...DefaultTheme.colors, background: "#0b1220" } }),
     []
   );
 
+  // Check if this is the first app launch
   useEffect(() => {
+    (async () => {
+      try {
+        const flag = await AsyncStorage.getItem("firstLaunchDone");
+        if (!flag) {
+          // First app open ever — force Sign In
+          setFirstLaunch(true);
+          if (firebaseAuth.currentUser) {
+            try { await signOut(firebaseAuth); } catch {}
+          }
+          await AsyncStorage.setItem("firstLaunchDone", "1");
+        } else {
+          setFirstLaunch(false);
+        }
+      } catch {
+        // If storage fails, default to not-first-launch to avoid blocking
+        setFirstLaunch(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (firstLaunch === null) return;
     let unsubUser, unsubCoach;
     const stopAuth = onAuthStateChanged(firebaseAuth, async (user) => {
       console.log('[AuthListener] onAuthStateChanged fired user=', !!user && user.uid);
@@ -326,6 +365,15 @@ export default function App() {
       unsubCoach?.();
       unsubUser = undefined;
       unsubCoach = undefined;
+
+      if (firstLaunch === true) {
+        console.log("[AuthListener] First launch → forcing SignIn");
+        setAuthGateTarget("SignIn");
+        setRoute("auth");
+        setCoachProfile(null);
+        setBooting(false);
+        return;
+      }
 
       if (!user) {
         console.log('[AuthListener] No user -> auth stack');
@@ -346,7 +394,7 @@ export default function App() {
         console.log('[AuthListener] user doc exists?', userSnap.exists());
         if (!userSnap.exists()) {
           try {
-          console.log('[AuthListener] creating baseline user doc');
+            console.log('[AuthListener] creating baseline user doc');
             await setDoc(userRef, {
               role: 'user',
               email: user.email || null,
@@ -364,8 +412,11 @@ export default function App() {
             setRoute('auth');
           } finally {
             unsubUser = onSnapshot(userRef, (snap) => {
+              if (!firebaseAuth.currentUser) return;
+              
               const data = snap.data() || {};
               console.log('[AuthListener][onSnapshot user] role=', data.role, 'onboardingComplete=', data.onboardingComplete);
+              
               if (data.role === 'coach') {
                 const needsVerify = !data.coachOnboardingComplete || !data.phoneVerified || !data.coachEmailVerified;
                 setRoute(needsVerify ? 'auth' : 'coach');
@@ -373,7 +424,11 @@ export default function App() {
                 setRoute(data.onboardingComplete ? 'main' : 'onboarding');
               }
             });
-            unsubCoach = onSnapshot(coachRef, (snap) => { console.log('[AuthListener][onSnapshot coach] doc', !!snap.exists()); setCoachProfile(snap.data() || null); });
+            unsubCoach = onSnapshot(coachRef, (snap) => { 
+              console.log('[AuthListener][onSnapshot coach] doc', !!snap.exists()); 
+              setCoachProfile(snap.data() || null); 
+            });
+            if (!firebaseAuth.currentUser) return;
             setBooting(false);
           }
           return;
@@ -463,6 +518,8 @@ export default function App() {
         }
 
         unsubUser = onSnapshot(userRef, (snap) => {
+          if (!firebaseAuth.currentUser) return;
+          
           const data = snap.data() || {};
           const userRole = data.role;
           console.log('[AuthListener][user live] role=', userRole, 'onboardingComplete=', data.onboardingComplete);
@@ -483,6 +540,8 @@ export default function App() {
         });
 
         unsubCoach = onSnapshot(coachRef, (snap) => {
+          if (!firebaseAuth.currentUser) return;
+          
           console.log('[AuthListener][coach live] exists=', snap.exists());
           setCoachProfile(snap.data() || null);
         });
@@ -500,33 +559,7 @@ export default function App() {
       unsubCoach?.();
       stopAuth();
     };
-  }, []);
-
-  useEffect(() => {
-    if (!route || booting) return;
-    const map = { auth:'AuthRoot', onboarding:'OnboardingRoot', main:'MainRoot', coach:'CoachRoot' };
-    const target = map[route];
-    if (!target) return;
-    let attempts = 0;
-    const maxAttempts = 20;
-    console.log('[NavResetLoop] starting for route', route, 'target', target);
-    const interval = setInterval(() => {
-      attempts++;
-      const ready = navigationRef.isReady();
-      if (ready) {
-        console.log('[NavResetLoop] ready on attempt', attempts, 'resetting to', target);
-        try { navigationRef.reset({ index:0, routes:[{ name: target }] }); } catch(e) { console.warn('[NavResetLoop] reset error', e); }
-        clearInterval(interval);
-      } else {
-        console.log('[NavResetLoop] not ready attempt', attempts);
-      }
-      if (attempts >= maxAttempts) {
-        console.warn('[NavResetLoop] gave up after', attempts, 'attempts');
-        clearInterval(interval);
-      }
-    }, 150);
-    return () => clearInterval(interval);
-  }, [route, booting]);
+  }, [firstLaunch]);
 
   useEffect(() => {
     if (route === 'auth') {
@@ -536,7 +569,7 @@ export default function App() {
         getDoc(doc(db, 'users', u.uid)).then(s => {
           const d = s.data() || {};
           if (d.role === 'user' && d.onboardingComplete) {
-            console.log('[Fallback] Forcing navigation to MainRoot');
+            console.log('[Fallback] Forcing navigation to main');
             setRoute('main');
           }
         }).catch(()=>{});
@@ -545,7 +578,7 @@ export default function App() {
     }
   }, [route]);
 
-  if (booting || !route) return <LoadingScreen />;
+  if (booting || firstLaunch === null || !route) return <LoadingScreen />;
 
   return (
     <SafeAreaProvider>
@@ -557,9 +590,8 @@ export default function App() {
       <NavigationContainer
         ref={navigationRef}
         theme={navTheme}
-        onReady={() => setNavReady(true)}
       >
-        <RootNavigator authInitial={authGateTarget} />
+        <Router routeKey={route} authInitial={authGateTarget} />
       </NavigationContainer>
     </SafeAreaProvider>
   );
