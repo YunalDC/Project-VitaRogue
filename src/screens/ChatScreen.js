@@ -12,12 +12,14 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import Constants from 'expo-constants';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { fetchParticipantProfile } from '../lib/chatUtils';
+import { generateBotReply, shouldBotRespond, BOT_USER_ID, BOT_NAME } from '../lib/chatBot';
 import {
   collection,
   query,
@@ -60,6 +62,29 @@ export default function ChatScreen({ route, navigation }) {
   const lastTypedRef = useRef(0);
   const flatListRef = useRef(null);
   const PAGE_SIZE = 40;
+
+  // Helpers: robust timestamp conversions (handles Firestore Timestamp, Date, number, or placeholder with toDate)
+  const tsToMillis = (ts) => {
+    try {
+      if (!ts) return 0;
+      if (typeof ts.toMillis === 'function') return ts.toMillis();
+      if (typeof ts.toDate === 'function') return ts.toDate().getTime();
+      if (ts instanceof Date) return ts.getTime();
+      if (typeof ts === 'number') return ts;
+    } catch(_) {}
+    return 0;
+  };
+
+  const tsToDate = (ts) => {
+    try {
+      if (!ts) return null;
+      if (typeof ts.toDate === 'function') return ts.toDate();
+      const ms = tsToMillis(ts);
+      return ms ? new Date(ms) : null;
+    } catch(_) {
+      return null;
+    }
+  };
 
   useEffect(() => {
     const auth = getAuth();
@@ -128,7 +153,7 @@ export default function ChatScreen({ route, navigation }) {
         }
       } catch(e) { console.warn('[ChatScreen] participant auto-repair failed', e); }
     })();
-  }, [chatId]);
+  }, [chatId, otherUser]);
 
   const markMessagesAsRead = useCallback(async () => {
     try {
@@ -165,6 +190,118 @@ export default function ChatScreen({ route, navigation }) {
       setTimeout(() => {
         setPendingMessages(prev => prev.filter(m => m.id !== tempId));
       }, 4000);
+      // Bot auto-reply if coach is offline
+  try {
+        // Determine other participant details
+        const otherId = otherUser?.id || (chatMeta?.participants || []).find(p => p !== currentUserId);
+        const otherRole = otherUser?.role;
+        const coachCandidateIsCoach = otherRole === 'coach';
+
+        // Infer presence from chat meta if available
+        const coachOnline = chatMeta?.presence?.[otherId]?.online;
+        const lastActive = chatMeta?.presence?.[otherId]?.lastActive;
+        const lastActiveMs = tsToMillis(lastActive) || undefined;
+        // Fallback: if presence is unknown, treat as offline so the bot still helps
+        const presenceKnown = typeof coachOnline === 'boolean' || typeof lastActiveMs === 'number';
+        const respond = coachCandidateIsCoach && (!presenceKnown || shouldBotRespond({ isCoach: true, coachOnline, lastActiveMs }));
+
+        if (respond) {
+          // show local typing indicator for VitaBot
+          const typingId = `bot_typing_${Date.now()}`;
+          const typingPlaceholder = { id: typingId, text: 'VitaBot is typing…', senderId: BOT_USER_ID, _bot: true, _botTyping: true, timestamp: { toDate: () => new Date() } };
+          setPendingMessages(prev => [...prev, typingPlaceholder]);
+
+          // small delay to simulate typing
+          await new Promise(res => setTimeout(res, Math.min(1200, Math.max(400, messageText.length * 30))));
+
+          // Try server AI first (server also writes the message for trust)
+          let wroteServerSide = false; let reply;
+          try {
+            const functions = getFunctions();
+            const aiSend = httpsCallable(functions, 'aiVitaBotSend');
+            const { data } = await aiSend({ chatId, text: messageText, context: { offline: coachOnline !== true } });
+            wroteServerSide = !!data?.ok;
+          } catch (_) {}
+          if (!wroteServerSide) {
+            // optional external proxy (e.g., Vercel/Cloudflare) via EXPO_PUBLIC_VITABOT_PROXY_URL
+            const proxyUrl = process.env.EXPO_PUBLIC_VITABOT_PROXY_URL
+              || (Constants?.expoConfig?.extra?.EXPO_PUBLIC_VITABOT_PROXY_URL)
+              || (Constants?.manifest?.extra?.EXPO_PUBLIC_VITABOT_PROXY_URL);
+            if (proxyUrl) {
+              try {
+                const res = await fetch(proxyUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ chatId, text: messageText, context: { offline: coachOnline !== true } }),
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  const pReply = typeof data?.reply === 'string' ? data.reply : null;
+                  if (pReply) {
+                    reply = pReply;
+                    await addDoc(messagesRef, { text: reply, senderId: BOT_USER_ID, senderName: BOT_NAME, timestamp: serverTimestamp(), _bot: true });
+                    wroteServerSide = true; // treat as handled
+                  }
+                }
+              } catch (_) { /* ignore and fallback */ }
+            }
+            if (!wroteServerSide) {
+              // simplest: direct Gemini call from client if key exists (no server needed)
+              const geminiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY
+                || (Constants?.expoConfig?.extra?.GEMINI_API_KEY)
+                || (Constants?.manifest?.extra?.GEMINI_API_KEY);
+              if (geminiKey) {
+                try {
+                  const OUT_OF_SCOPE = /(crypto|stock|forex|tax|politic|religion|dating|sexual|nsfw|violence|weapons?|hacking|illegal|medical\s*(diagnosis|treatment|prescription|medication))/i;
+                  if (!OUT_OF_SCOPE.test(messageText)) {
+                    const system = 'You are VitaBot, a concise, friendly assistant for a fitness and health app.\n\n'
+                      + 'Scope: ONLY help with:\n'
+                      + '- Workouts/exercise, warmups, sets/reps, general progression\n'
+                      + '- Nutrition basics (calories, macros, meal ideas), hydration\n'
+                      + '- Sleep/recovery habits\n'
+                      + '- How to use the app (navigation and features)\n\n'
+                      + 'Hard limits: Do NOT provide medical diagnoses, clinical treatment, or personalized medical advice.\n'
+                      + 'Refuse non-fitness topics (crypto, taxes, politics, adult content, hacking, illegal).\n\n'
+                      + 'Style: short, practical, supportive. Use bullet points when helpful. If unclear, ask 1 brief clarifier.\n'
+                      + 'If asked about calories for common foods, provide reasonable approximations (e.g., medium banana ~105 kcal).';
+                    // Use the same model family as Food Scanner for consistency
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+                    console.log('[VitaBot] Using direct Gemini text call');
+                    const res = await fetch(url, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: `${system}\n\nUser: ${String(messageText).trim()}` }] }],
+                        generationConfig: { temperature: 0.4 },
+                      }),
+                    });
+                    if (res.ok) {
+                      const json = await res.json();
+                      const cand = json?.candidates?.[0];
+                      const parts = cand?.content?.parts || [];
+                      const content = parts.map(p => p.text).filter(Boolean).join('\n').trim();
+                      const aiReply = content || 'I can help with workouts, nutrition, hydration, sleep, and app guidance.';
+                      reply = (coachOnline !== true ? 'Your coach is currently offline. I’m VitaBot, here to help for now. ' : '') + aiReply;
+                      await addDoc(messagesRef, { text: reply, senderId: BOT_USER_ID, senderName: BOT_NAME, timestamp: serverTimestamp(), _bot: true });
+                      wroteServerSide = true; // handled
+                    }
+                  }
+                } catch (_) { /* ignore and fallback */ }
+              }
+              if (!wroteServerSide) {
+                // fallback: local generate + client write
+                reply = generateBotReply(messageText, { chatId, userId: currentUserId, offline: coachOnline !== true });
+                await addDoc(messagesRef, { text: reply, senderId: BOT_USER_ID, senderName: BOT_NAME, timestamp: serverTimestamp(), _bot: true });
+              }
+            }
+          }
+          // remove typing placeholder
+          setPendingMessages(prev => prev.filter(m => m.id !== typingId));
+        }
+      } catch (e) {
+        // non-fatal
+        console.warn('[ChatScreen] bot reply failed', e);
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       // mark optimistic failed
@@ -195,9 +332,7 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const formatMessageTime = (timestamp) => {
-    if (!timestamp) return "";
-
-    const date = timestamp.toDate();
+    const date = tsToDate(timestamp);
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
@@ -206,15 +341,13 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const renderMessage = ({ item, index }) => {
-    const isCurrentUser = item.senderId === currentUserId;
+  const isCurrentUser = item.senderId === currentUserId;
     const isOptimistic = item._optimistic;
     const failed = item._error;
-    const showTimestamp =
-      index === 0 ||
-      (messages[index - 1] &&
-        Math.abs(
-          item.timestamp?.toMillis() - messages[index - 1].timestamp?.toMillis()
-        ) > 300000); // 5 minutes
+  const isBotTyping = !!item._botTyping;
+  const currMs = tsToMillis(item.timestamp);
+  const prevMs = tsToMillis(messages[index - 1]?.timestamp);
+  const showTimestamp = index === 0 || (messages[index - 1] && Math.abs(currMs - prevMs) > 300000); // 5 minutes
 
     // Determine read receipt for last outgoing message
     let showSeen = false;
@@ -224,12 +357,26 @@ export default function ChatScreen({ route, navigation }) {
       if (lastOutgoing && lastOutgoing.id === item.id && chatMeta?.lastReadAt) {
         const otherId = (chatMeta.participants || []).find(p => p !== currentUserId);
         const otherReadTs = chatMeta.lastReadAt?.[otherId];
-        if (otherReadTs && item.timestamp?.toMillis) {
-          const msgTs = item.timestamp.toMillis();
-          const readMillis = (otherReadTs.toMillis ? otherReadTs.toMillis() : Date.now());
+        if (otherReadTs) {
+          const msgTs = tsToMillis(item.timestamp);
+          const readMillis = (typeof otherReadTs.toMillis === 'function' ? otherReadTs.toMillis() : tsToMillis(otherReadTs) || Date.now());
           if (readMillis >= msgTs) showSeen = true;
         }
       }
+    }
+
+  const isBot = item.senderId === BOT_USER_ID || item._bot;
+    if (isBotTyping) {
+      return (
+        <View style={styles.messageContainer}>
+          <View style={[styles.messageBubble, styles.botMessage, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#94a3b8' }} />
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#94a3b8' }} />
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#94a3b8' }} />
+            <Text style={[styles.messageText, styles.botMessageText]}> {item.text}</Text>
+          </View>
+        </View>
+      );
     }
 
     return (
@@ -245,7 +392,7 @@ export default function ChatScreen({ route, navigation }) {
         <View
           style={[
             styles.messageBubble,
-            isCurrentUser ? styles.myMessage : styles.theirMessage,
+            isCurrentUser ? styles.myMessage : (isBot ? styles.botMessage : styles.theirMessage),
             isOptimistic && { opacity: 0.6 },
             failed && { borderWidth: 1, borderColor: '#ef4444' },
           ]}
@@ -253,11 +400,14 @@ export default function ChatScreen({ route, navigation }) {
           <Text
             style={[
               styles.messageText,
-              isCurrentUser ? styles.myMessageText : styles.theirMessageText,
+              isCurrentUser ? styles.myMessageText : (isBot ? styles.botMessageText : styles.theirMessageText),
             ]}
           >
             {item.text}
           </Text>
+          {isBot && (
+            <Text style={{ color: '#94a3b8', fontSize: 10, marginTop: 6, fontStyle: 'italic' }}>VitaBot</Text>
+          )}
           {failed && (
             <TouchableOpacity onPress={() => retrySend(item)} style={{ marginTop: 4 }}>
               <Text style={{ color: '#ef4444', fontSize: 11, fontWeight: '600' }}>Failed. Tap to retry.</Text>
@@ -267,6 +417,7 @@ export default function ChatScreen({ route, navigation }) {
             <Text style={{ color: '#155e75', fontSize: 10, marginTop: 4, fontWeight: '600' }}>Seen</Text>
           )}
         </View>
+        {isBot && (<Text style={styles.botCaption}>VitaBot</Text>)}
       </View>
     );
   };
@@ -499,6 +650,12 @@ const styles = StyleSheet.create({
     backgroundColor: CARD,
     borderBottomLeftRadius: 4,
   },
+  botMessage: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
   messageText: {
     fontSize: 15,
     lineHeight: 20,
@@ -509,6 +666,11 @@ const styles = StyleSheet.create({
   theirMessageText: {
     color: TEXT,
   },
+  botMessageText: {
+    color: '#cbd5e1',
+    fontStyle: 'italic',
+  },
+  botCaption: { color: '#64748b', fontSize: 11, marginTop: 4, marginLeft: 6 },
   inputContainer: {
     paddingHorizontal: 16,
     paddingVertical: 12,

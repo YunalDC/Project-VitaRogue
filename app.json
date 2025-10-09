@@ -14,6 +14,7 @@
     "extra": {
       "GOOGLE_PLACES_API_KEY": "AIzaSyAew3jRMeVFelmj0fT0EoRVCN0McIVquAA",
       "GEMINI_API_KEY": "AIzaSyBYk-O6RFxd5zZfGXaTXnXoiE-r1htaNgQ",
+  "EXPO_PUBLIC_VITABOT_PROXY_URL": "",
       "eas": {
         "projectId": "96e37541-8b98-4aa7-91a2-acc5b006c78e"
       }
