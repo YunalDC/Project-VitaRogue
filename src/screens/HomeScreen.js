@@ -417,49 +417,39 @@ export default function HomeScreen({ route, navigation }) {
   useEffect(() => {
     const auth = getAuth();
     const unsubAuth = onAuthStateChanged(auth, (u) => {
-      console.log('🔐 Auth state changed:', u ? 'User logged in' : 'User logged out');
       setAuthUser(u || null);
     });
     return () => unsubAuth();
   }, []);
 
   useEffect(() => {
-    console.log('🔄 useEffect triggered. authUser:', authUser?.uid || 'null');
-    
     if (!authUser) {
-      console.log('❌ No authUser - Resetting all data to null');
       setUserData(null);
       setProfile(null);
       setTodayDiary(null);
       setTodayWorkout(null);
       setLatestWeight(null);
       setLoading(false);
-      console.log('✅ userData reset to null');
       return;
     }
 
-    console.log('✅ authUser exists - Setting up Firebase listeners');
     setLoading(true);
     const uref = doc(db, "users", authUser.uid);
 
     const off1 = onSnapshot(
-      uref,
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data();
-          console.log('📊 User data received from Firebase:', data);
-          setUserData(data);
-          setProfile(data?.profile || null);
-        } else {
-          console.log('⚠️ User document does not exist');
-          setUserData(null);
-          setProfile(null);
-        }
-      },
-      (error) => {
-        console.log('❌ Error fetching user data:', error);
+    uref,
+    (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setUserData(data); // ← ADD THIS LINE
+        setProfile(data?.profile || null);
+      } else {
+        setUserData(null); // ← ADD THIS LINE
+        setProfile(null);
       }
-    );
+    },
+    () => {}
+  );
 
     const dref = doc(db, "users", authUser.uid, "diary", todayId());
     const off2 = onSnapshot(dref, (s) => setTodayDiary(s.exists() ? s.data() : null), () => {});
@@ -483,7 +473,6 @@ export default function HomeScreen({ route, navigation }) {
 
     const timer = setTimeout(() => setLoading(false), 150);
     return () => {
-      console.log('🧹 Cleaning up Firebase listeners');
       off1?.();
       off2?.();
       off3?.();
@@ -491,11 +480,6 @@ export default function HomeScreen({ route, navigation }) {
       clearTimeout(timer);
     };
   }, [authUser]);
-
-  // Monitor userData changes
-  useEffect(() => {
-    console.log('📝 userData state changed:', userData);
-  }, [userData]);
 
   /* ------------ Derived values with personalization ------------ */
   const routeEmail = route?.params?.email || "user@example.com";
@@ -513,15 +497,18 @@ export default function HomeScreen({ route, navigation }) {
     [profile?.firstName, timeOfDay]
   );
 
-const targets = useMemo(() => calcTargets(profile), [profile]);
+  const targets = useMemo(() => calcTargets(profile), [profile]);
 
 const baseGoal = useMemo(() => {
+  // Check if user has manually set a calorie goal
   if (userData?.goals?.targetCalories) {
+    console.log('📝 Using MANUAL calorie goal:', userData.goals.targetCalories);
     return userData.goals.targetCalories;
   }
+  // Otherwise use auto-calculated target
+  console.log('🤖 Using AUTO-CALCULATED calorie goal:', targets?.caloriesTarget || 2000);
   return targets?.caloriesTarget || 2000;
 }, [userData?.goals?.targetCalories, targets?.caloriesTarget]);
-
 
   const consumedKcal = Number(todayDiary?.kcal || 0);
   const exerciseKcal = Number(todayWorkout?.calories || 0);
@@ -577,20 +564,18 @@ const baseGoal = useMemo(() => {
 
   /* ------------ Debug data flow (REMOVE IN PRODUCTION) ------------ */
   useEffect(() => {
-  console.log('=== DEBUG: Data Flow ===');
-  console.log('1. User authenticated:', !!authUser);
-  console.log('2. Profile loaded:', !!profile);
-  console.log('3. Profile data:', profile);
-  console.log('4. Calculated targets:', targets);
-  console.log('5. Manual calorie goal:', userData?.goals?.targetCalories || 'Not set');
-  console.log('6. Base calorie goal:', baseGoal);
-  console.log('7. Using mode:', userData?.goals?.targetCalories ? 'MANUAL' : 'AUTO');
-  console.log('8. Today diary:', todayDiary);
-  console.log('9. Consumed kcal:', consumedKcal);
-  console.log('10. Exercise kcal:', exerciseKcal);
-  console.log('11. Remaining kcal:', remaining);
-  console.log('========================');
-}, [authUser, profile, userData, targets, baseGoal, todayDiary, consumedKcal, exerciseKcal, remaining]);
+    console.log('=== DEBUG: Data Flow ===');
+    console.log('1. User authenticated:', !!authUser);
+    console.log('2. Profile loaded:', !!profile);
+    console.log('3. Profile data:', profile);
+    console.log('4. Calculated targets:', targets);
+    console.log('5. Base calorie goal:', baseGoal);
+    console.log('6. Today diary:', todayDiary);
+    console.log('7. Consumed kcal:', consumedKcal);
+    console.log('8. Exercise kcal:', exerciseKcal);
+    console.log('9. Remaining kcal:', remaining);
+    console.log('========================');
+  }, [authUser, profile, targets, baseGoal, todayDiary, consumedKcal, exerciseKcal, remaining]);
 
   /* ------------ Helpers ------------ */
   const safeNav = (name, params) => {
