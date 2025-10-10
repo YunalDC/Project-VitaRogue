@@ -26,6 +26,37 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Picker } from "@react-native-picker/picker";
 import { saveFoodEntry } from "../utils/foodStorage";
 
+// Cholesterol estimation helper (per 100g heuristics)
+const estimateCholesterol = (foodName, grams) => {
+  const name = (foodName || '').toLowerCase();
+  const g = Number(grams) || 0;
+  // Animal products
+  if (name.includes('egg')) return Math.round((g / 100) * 372); // ~372mg/100g
+  if (name.includes('shrimp') || name.includes('prawn')) return Math.round((g / 100) * 189);
+  if (name.includes('liver')) return Math.round((g / 100) * 389);
+  if (name.includes('beef') || name.includes('steak') || name.includes('hamburger')) return Math.round((g / 100) * 85);
+  if (name.includes('pork') || name.includes('bacon') || name.includes('ham')) return Math.round((g / 100) * 75);
+  if (name.includes('chicken') || name.includes('turkey')) return Math.round((g / 100) * (name.includes('skin') ? 85 : 70));
+  if (name.includes('salmon') || name.includes('tuna') || name.includes('fish')) return Math.round((g / 100) * 60);
+  if (name.includes('cheese')) return Math.round((g / 100) * 100);
+  if (name.includes('butter')) return Math.round((g / 100) * 215);
+  if (name.includes('milk') || name.includes('yogurt')) return Math.round((g / 100) * (name.includes('whole') ? 14 : 5));
+  if (name.includes('cream') || name.includes('ice cream')) return Math.round((g / 100) * 45);
+  // Plant-based defaults to 0mg
+  if (
+    name.includes('apple') || name.includes('banana') || name.includes('orange') ||
+    name.includes('vegetable') || name.includes('fruit') || name.includes('bean') ||
+    name.includes('lentil') || name.includes('rice') || name.includes('pasta') ||
+    name.includes('bread') || name.includes('oat') || name.includes('nut') ||
+    name.includes('tofu') || name.includes('soy') || name.includes('broccoli') ||
+    name.includes('carrot') || name.includes('tomato') || name.includes('lettuce')
+  ) {
+    return 0;
+  }
+  // Unknown → assume 0mg to be safe
+  return 0;
+};
+
 const { width, height } = Dimensions.get("window");
 
 // Theme

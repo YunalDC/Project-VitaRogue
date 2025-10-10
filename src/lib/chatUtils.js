@@ -37,7 +37,7 @@ export async function fetchParticipantProfile(uid) {
 		const combined = [userFirst, userLast].filter(Boolean).join(' ');
 		const emailPrefix = (userData.email || '').split('@')[0];
 
-		const candidates = [
+	const candidates = [
 			coachData?.name,
 			coachData?.displayName,
 			combined,
@@ -51,7 +51,10 @@ export async function fetchParticipantProfile(uid) {
 		// Pick first non-empty not equal to generic placeholders if later better exists
 		let name = candidates[0] || 'User';
 
-		return { id: uid, name, role, email: userData.email || coachData?.email }; // include email for debugging (unused otherwise)
+	const emailVal = userData.email || coachData?.email;
+	const profile = { id: uid, name, role };
+	if (emailVal) profile.email = emailVal; // only include when defined
+	return profile;
 	} catch (e) {
 		console.warn('[chatUtils] fetchParticipantProfile failed', e);
 		return { id: uid, name: 'Unknown', role: 'user' };
@@ -69,10 +72,14 @@ export async function getOrCreateOneToOneChat(uidA, uidB) {
 	}
 	if (snap?.exists()) return { id: chatId, ...snap.data() };
 
-	const [pA, pB] = await Promise.all([
+	const [rawA, rawB] = await Promise.all([
 		fetchParticipantProfile(uidA),
 		fetchParticipantProfile(uidB)
 	]);
+	// Strip undefined fields defensively
+	const sanitize = (obj) => Object.fromEntries(Object.entries(obj || {}).filter(([_, v]) => v !== undefined));
+	const pA = sanitize(rawA);
+	const pB = sanitize(rawB);
 	const participantDetails = { [pA.id]: pA, [pB.id]: pB };
 	const base = {
 		participants: [pA.id, pB.id],

@@ -1087,19 +1087,20 @@ export default function CoachDashboardScreen({ navigation }) {
               ms={ms}
             />
             <MetricCard
-              title="Weekly Revenue"
-              value={`$${METRICS.weeklyRevenue}`}
-              subtitle="This week's earnings"
-              icon="card-outline"
-              color={COLORS.success}
-              ms={ms}
-            />
-            <MetricCard
               title="Client Satisfaction"
               value={`${METRICS.clientSatisfaction}%`}
               subtitle="Average rating"
               icon="heart-outline"
               color={COLORS.accent}
+              ms={ms}
+            />
+            <MetricCard
+              title="Discover"
+              value={''}
+              subtitle="Find content & tools"
+              icon="compass-outline"
+              color={COLORS.warning}
+              onPress={() => navigation.navigate('Discover')}
               ms={ms}
             />
           </View>

@@ -283,6 +283,7 @@ function CoachStack() {
       screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}
     >
       <Stack.Screen name="CoachDashboard" component={CoachDashboardScreen} />
+  <Stack.Screen name="Discover" component={DiscoverScreen} />
       <Stack.Screen name="CoachClients" component={CoachClientsScreen} />
       <Stack.Screen name="CoachClientProfile" component={CoachClientProfile} />
       <Stack.Screen name="ClientMessaging" component={CoachClientMessaging} />

@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import Constants from 'expo-constants';
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
 import { db } from "../lib/firebaseApp";
@@ -46,6 +46,7 @@ const SUCCESS = "#10B981";
 
 export default function ChatScreen({ route, navigation }) {
   const { chatId, otherUser: initialOtherUser } = route.params;
+  const insets = useSafeAreaInsets();
   const [otherUser, setOtherUser] = useState(initialOtherUser || null);
   const [messages, setMessages] = useState([]);
   const [pageCursor, setPageCursor] = useState(null);
@@ -61,6 +62,7 @@ export default function ChatScreen({ route, navigation }) {
   const typingTimeoutRef = useRef(null);
   const lastTypedRef = useRef(0);
   const flatListRef = useRef(null);
+  const [inputHeight, setInputHeight] = useState(96); // measured at runtime
   const PAGE_SIZE = 40;
 
   // Helpers: robust timestamp conversions (handles Firestore Timestamp, Date, number, or placeholder with toDate)
@@ -462,7 +464,7 @@ export default function ChatScreen({ route, navigation }) {
   }, [updateTyping]);
 
   return (
-    <SafeAreaView style={styles.container} edges={["top"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <StatusBar style="light" backgroundColor={BG} />
       {Platform.OS === "android" && <RNStatusBar barStyle="light-content" />}
 
@@ -494,7 +496,7 @@ export default function ChatScreen({ route, navigation }) {
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? Math.max(0, (insets?.top || 0) + 64) : 0}
       >
         {/* Messages */}
         {loading ? (
@@ -507,7 +509,10 @@ export default function ChatScreen({ route, navigation }) {
          data={[...messages, ...pendingMessages]}
              renderItem={renderMessage}
              keyExtractor={(item) => item.id}
-             contentContainerStyle={styles.messagesContainer}
+             contentContainerStyle={[
+               styles.messagesContainer,
+               { paddingBottom: Math.max(inputHeight + 12, 80) },
+             ]}
              showsVerticalScrollIndicator={false}
              onContentSizeChange={() =>
                flatListRef.current?.scrollToEnd({ animated: false })
@@ -530,7 +535,17 @@ export default function ChatScreen({ route, navigation }) {
         )}
 
         {/* Input */}
-        <View style={styles.inputContainer}>
+        <View
+          style={[
+            styles.inputContainer,
+            { paddingBottom: 12 + Math.max((insets?.bottom || 0) - 6, 0) },
+          ]}
+          onLayout={(e) => {
+            const h = e?.nativeEvent?.layout?.height || 96;
+            // Include safe-area to ensure messages aren't hidden under the home indicator
+            setInputHeight(h + (insets?.bottom || 0));
+          }}
+        >
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}
