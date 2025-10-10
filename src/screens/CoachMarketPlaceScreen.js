@@ -38,10 +38,6 @@ const MUTED = "#8EA1B8";
 const ACCENT = "#10B981";
 const CHIP_BG = "rgba(18, 35, 57, 0.7)";
 
-// Firestore-backed coach marketplace uses public coach docs.
-// Each coach document should expose safe public fields (name, specialization, photoURL/avatar, rating, categories, shortBio).
-// Real-time listener keeps list fresh.
-
 const categories = ["All", "Strength", "Yoga", "Cardio", "Pilates"];
 
 /* ------------------ Small helper icon ------------------ */
@@ -66,79 +62,67 @@ export default function CoachMarketplaceScreen({ navigation }) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [reviewInputs, setReviewInputs] = useState({});
   const [reviewStars, setReviewStars] = useState({});
-  const [sort, setSort] = useState("Top rated"); // "Top rated" | "Name"
+  const [sort, setSort] = useState("Top rated");
   const [creatingChatCoachId, setCreatingChatCoachId] = useState(null);
 
   const auth = getAuth();
   const currentUser = auth.currentUser;
 
-  // TEMP helper: ensure a coach listing exists for the specified test email without changing user role
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!currentUser) return;
-        const targetEmail = 'yunaldecosta145@gmail.com';
-        if ((currentUser.email || '').toLowerCase() !== targetEmail) return; // only run for that account
-        const coachRef = doc(db, 'coaches', currentUser.uid);
-        const snap = await getDoc(coachRef);
-        if (snap.exists()) return; // already has listing
-        await setDoc(coachRef, {
-          name: 'Yunal De Costa',
-          displayName: 'Yunal De Costa',
-          specialization: 'Strength & Conditioning',
-          specializationCategory: 'Strength',
-          shortBio: 'Supporting athletes and everyday people to move better and get stronger.',
-          rating: 4.9,
-          public: true,
-          avatar: currentUser.photoURL || 'https://placehold.co/200x200/png',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          coachOnboardingComplete: true,
-          phoneVerified: true,
-          coachEmailVerified: true,
-          status: 'approved',
-          experienceYears: 5,
-          focus: 'Strength & Performance Coaching',
-          reviewsList: [
-            { id: 'seed1', reviewer: 'Test User', comment: 'Incredible coaching quality!', stars: 5 },
-            { id: 'seed2', reviewer: 'Early Adopter', comment: 'Very knowledgeable and professional.', stars: 5 }
-          ]
-        }, { merge: true });
-        console.log('[CoachMarketplace] Created test coach listing for', targetEmail);
-      } catch (e) {
-        console.warn('[CoachMarketplace] ensure test coach failed', e);
-      }
-    })();
-  }, [currentUser]);
-
-  // Subscribe to coaches collection
+  // Subscribe to ALL coaches from Firebase - improved query
   useEffect(() => {
     const coachesRef = collection(db, 'coaches');
-    // Only approved or public coaches; fallback to any if field missing
-    const qRef = query(coachesRef, where('public', '==', true));
-    const unsub = onSnapshot(qRef, snap => {
+    
+    // Query for coaches that are either:
+    // 1. public: true, OR
+    // 2. status: 'approved', OR  
+    // 3. coachApproved: true
+    // Note: Firestore doesn't support OR queries directly, so we'll fetch all and filter in code
+    
+    const unsub = onSnapshot(coachesRef, snap => {
       let list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Temporary removal of seeded test coach 'Hirun Bruce'
-      list = list.filter(c => (c.name||c.displayName) !== 'Hirun Bruce');
+      
+      // Filter for approved/public coaches
+      list = list.filter(coach => {
+        const isPublic = coach.public === true;
+        const isApproved = coach.status?.toLowerCase() === 'approved';
+        const hasCoachApproved = coach.coachApproved === true;
+        
+        // Show coach if ANY of these conditions are true
+        return isPublic || isApproved || hasCoachApproved;
+      });
+      
+      console.log(`[CoachMarketplace] Loaded ${list.length} approved/public coaches from Firebase`);
+      
       setCoaches(list);
       setLoading(false);
-    }, e => { console.warn('[CoachMarketplace] listen error', e); setLoading(false); });
+    }, e => { 
+      console.warn('[CoachMarketplace] listen error', e); 
+      setLoading(false); 
+    });
+    
     return () => unsub();
   }, []);
 
   const startChat = useCallback(async (coach) => {
-    if (!currentUser) { console.log('[CoachMarketplace] startChat aborted: no currentUser'); return; }
+    if (!currentUser) { 
+      console.log('[CoachMarketplace] startChat aborted: no currentUser'); 
+      return; 
+    }
     if (currentUser.uid === coach.id) {
-      Alert.alert('Cannot Message Yourself', 'Create/sign in with a separate user account to message this coach. (Your account owns this listing)');
+      Alert.alert('Cannot Message Yourself', 'You cannot message your own coach profile.');
       return;
     }
-    if (creatingChatCoachId) return; // already creating
+    if (creatingChatCoachId) return;
+    
     setCreatingChatCoachId(coach.id);
-    let chat; let stage = 'create';
+    let chat; 
+    let stage = 'create';
+    
     try {
       console.log('[CoachMarketplace] startChat -> getOrCreateOneToOneChat');
       chat = await getOrCreateOneToOneChat(currentUser.uid, coach.id);
       console.log('[CoachMarketplace] chat id', chat.id, 'has lastMessage?', !!chat.lastMessage);
+      
       stage = 'seed-check';
       if (!chat.lastMessage || !chat._seededGreeting) {
         console.log('[CoachMarketplace] seeding greeting');
@@ -151,6 +135,7 @@ export default function CoachMarketplaceScreen({ navigation }) {
           timestamp: serverTimestamp(),
           read: false,
         });
+        
         stage = 'seed-update-chat';
         const chatRef = doc(db, 'chats', chat.id);
         await updateDoc(chatRef, {
@@ -160,15 +145,30 @@ export default function CoachMarketplaceScreen({ navigation }) {
           [`unreadCount.${coach.id}`]: increment(1),
         });
       }
+      
       stage = 'navigate';
-      navigation.navigate('Chat', { chatId: chat.id, otherUser: chat.participantDetails[coach.id] || { id: coach.id, name: coach.name || coach.displayName || 'Coach', role: 'coach' } });
+      navigation.navigate('Chat', { 
+        chatId: chat.id, 
+        otherUser: chat.participantDetails[coach.id] || { 
+          id: coach.id, 
+          name: coach.name || coach.displayName || 'Coach', 
+          role: 'coach' 
+        } 
+      });
     } catch (e) {
       console.warn('[CoachMarketplace] startChat error stage='+stage, e);
       const msg = e?.message || 'Unknown error';
       Alert.alert('Chat Error', `Could not start chat (stage: ${stage}). ${msg}`);
+      
       if (chat?.id && stage !== 'navigate') {
-        // still navigate so user can attempt manually
-        navigation.navigate('Chat', { chatId: chat.id, otherUser: chat?.participantDetails?.[coach.id] || { id: coach.id, name: coach.name || 'Coach', role: 'coach' } });
+        navigation.navigate('Chat', { 
+          chatId: chat.id, 
+          otherUser: chat?.participantDetails?.[coach.id] || { 
+            id: coach.id, 
+            name: coach.name || 'Coach', 
+            role: 'coach' 
+          } 
+        });
       }
     } finally {
       setCreatingChatCoachId(null);
@@ -188,8 +188,8 @@ export default function CoachMarketplaceScreen({ navigation }) {
     const updatedCoaches = coaches.map((coach) => {
       if (coach.id === coachId) {
         const updatedReviews = [
-          ...coach.reviewsList,
-          { id: `r${coach.reviewsList.length + 1}`, reviewer: "You", comment: newComment, stars },
+          ...(coach.reviewsList || []),
+          { id: `r${Date.now()}`, reviewer: "You", comment: newComment, stars },
         ];
         const avgRating =
           updatedReviews.reduce((sum, r) => sum + r.stars, 0) / updatedReviews.length;
@@ -205,19 +205,23 @@ export default function CoachMarketplaceScreen({ navigation }) {
 
   /* -------------- Derived filtered/sorted list -------------- */
   const filtered = useMemo(() => coaches.filter(c => {
-    // Show the coach listing to all users, only hide it to itself if desired.
-    const hideSelf = currentUser && currentUser.uid === c.id && (currentUser.email||'').toLowerCase() === 'yunaldecosta145@gmail.com';
-    if (hideSelf) return false; // coach won't see own card; others will.
-    const cat = selectedCategory === 'All' || (c.category || c.specializationCategory) === selectedCategory;
+    // Filter by category
+    const cat = selectedCategory === 'All' || 
+                (c.category || c.specializationCategory) === selectedCategory;
+    
+    // Filter by search term
     const term = search.trim().toLowerCase();
-    const nameMatch = !term || (c.name || c.displayName || '').toLowerCase().includes(term);
+    const nameMatch = !term || 
+                      (c.name || c.displayName || '').toLowerCase().includes(term) ||
+                      (c.specialization || c.focus || '').toLowerCase().includes(term);
+    
     return cat && nameMatch;
-  }), [coaches, selectedCategory, search, currentUser]);
+  }), [coaches, selectedCategory, search]);
 
   const sorted =
     sort === "Name"
-      ? [...filtered].sort((a, b) => a.name.localeCompare(b.name))
-      : [...filtered].sort((a, b) => b.rating - a.rating);
+      ? [...filtered].sort((a, b) => (a.name || a.displayName || '').localeCompare(b.name || b.displayName || ''))
+      : [...filtered].sort((a, b) => (b.rating || 0) - (a.rating || 0));
 
   /* --------------------------- UI --------------------------- */
   const renderStarsPicker = (coachId) => (
@@ -228,7 +232,7 @@ export default function CoachMarketplaceScreen({ navigation }) {
           onPress={() => setReviewStars({ ...reviewStars, [coachId]: star })}
         >
           <Ionicons
-            name={reviewStars[coachId] >= star ? "star" : "star-outline"}
+            name={(reviewStars[coachId] || 5) >= star ? "star" : "star-outline"}
             size={20}
             color="#facc15"
             style={{ marginRight: 4 }}
@@ -247,6 +251,9 @@ export default function CoachMarketplaceScreen({ navigation }) {
     const photo = item.photoURL || item.avatar || 'https://placehold.co/120x120/png';
     const bio = item.shortBio || item.bio || 'No bio provided yet.';
     const reviews = item.reviewsList || [];
+    
+    const isOwnProfile = currentUser?.uid === item.id;
+    
     return (
       <TouchableOpacity
         activeOpacity={0.9}
@@ -284,52 +291,64 @@ export default function CoachMarketplaceScreen({ navigation }) {
             <Text style={styles.bio}>{bio}</Text>
 
             <View style={{ flexDirection:'row', gap:8, marginBottom:12 }}>
-              <TouchableOpacity
-                style={styles.whatsappButton}
-                onPress={() => startChat(item)}
-                disabled={creatingChatCoachId===item.id}
-              >
-                <Ionicons name="chatbubbles" size={18} color={BG} />
-                <Text style={styles.whatsappText}>Message</Text>
-              </TouchableOpacity>
-              {currentUser?.uid !== item.id && (
+              {!isOwnProfile && (
                 <TouchableOpacity
-                  style={[styles.whatsappButton,{ backgroundColor:'#334155' }]}
-                  onPress={() => navigation.navigate('CoachPublicProfile', { coachId: item.id })}
+                  style={styles.whatsappButton}
+                  onPress={() => startChat(item)}
+                  disabled={creatingChatCoachId===item.id}
                 >
-                  <Ionicons name="person-circle" size={18} color={ACCENT} />
-                  <Text style={[styles.whatsappText,{ color:ACCENT }]}>View Profile</Text>
+                  <Ionicons name="chatbubbles" size={18} color={BG} />
+                  <Text style={styles.whatsappText}>
+                    {creatingChatCoachId===item.id ? 'Loading...' : 'Message'}
+                  </Text>
                 </TouchableOpacity>
               )}
-            </View>
-            <Text style={styles.sectionTitle}>Reviews</Text>
-            {reviews.map((review, idx) => (
-              <View key={review.id} style={styles.reviewItem}>
-                <Text style={styles.reviewer}>
-                  {(review.reviewer||'User')} ({review.stars||'--'}⭐)
-                </Text>
-                <Text style={styles.reviewComment}>{review.comment}</Text>
-              </View>
-            ))}
-
-            <View style={styles.leaveReview}>
-              {renderStarsPicker(item.id)}
-              <TextInput
-                style={styles.reviewInput}
-                placeholder="Leave a review…"
-                placeholderTextColor="#94a3b8"
-                value={reviewInputs[item.id] || ""}
-                onChangeText={(text) =>
-                  setReviewInputs({ ...reviewInputs, [item.id]: text })
-                }
-              />
+              
               <TouchableOpacity
-                style={styles.submitButton}
-                onPress={() => handleSubmitReview(item.id)}
+                style={[styles.whatsappButton,{ backgroundColor:'#334155' }]}
+                onPress={() => navigation.navigate('CoachPublicProfile', { coachId: item.id })}
               >
-                <Text style={styles.submitText}>Submit</Text>
+                <Ionicons name="person-circle" size={18} color={ACCENT} />
+                <Text style={[styles.whatsappText,{ color:ACCENT }]}>View Profile</Text>
               </TouchableOpacity>
             </View>
+            
+            <Text style={styles.sectionTitle}>Reviews</Text>
+            {reviews.length === 0 ? (
+              <Text style={{ color: MUTED, fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>
+                No reviews yet. Be the first to leave one!
+              </Text>
+            ) : (
+              reviews.map((review) => (
+                <View key={review.id} style={styles.reviewItem}>
+                  <Text style={styles.reviewer}>
+                    {(review.reviewer||'User')} ({review.stars||5}⭐)
+                  </Text>
+                  <Text style={styles.reviewComment}>{review.comment}</Text>
+                </View>
+              ))
+            )}
+
+            {!isOwnProfile && (
+              <View style={styles.leaveReview}>
+                {renderStarsPicker(item.id)}
+                <TextInput
+                  style={styles.reviewInput}
+                  placeholder="Leave a review…"
+                  placeholderTextColor="#94a3b8"
+                  value={reviewInputs[item.id] || ""}
+                  onChangeText={(text) =>
+                    setReviewInputs({ ...reviewInputs, [item.id]: text })
+                  }
+                />
+                <TouchableOpacity
+                  style={styles.submitButton}
+                  onPress={() => handleSubmitReview(item.id)}
+                >
+                  <Text style={styles.submitText}>Submit</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
         )}
       </TouchableOpacity>
@@ -370,7 +389,7 @@ export default function CoachMarketplaceScreen({ navigation }) {
           <View style={{ width: 32, height: 32 }} />
         </View>
 
-        {/* Sort row (own line, horizontally scrollable) */}
+        {/* Sort row */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -447,7 +466,11 @@ export default function CoachMarketplaceScreen({ navigation }) {
           <View style={{ alignItems:'center', marginTop:40 }}>
             <Ionicons name='people-circle-outline' size={56} color={MUTED} />
             <Text style={{ color:TEXT, fontWeight:'700', marginTop:12 }}>No coaches found</Text>
-            <Text style={{ color:MUTED, fontSize:12, marginTop:4 }}>Try adjusting search or categories</Text>
+            <Text style={{ color:MUTED, fontSize:12, marginTop:4 }}>
+              {coaches.length === 0 
+                ? 'No approved coaches in Firebase yet'
+                : 'Try adjusting search or categories'}
+            </Text>
           </View>
         )}
       />

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 
 /** ==== API (no idToken here) ==== */
-const API_HOST = "http://192.168.8.179:4000";
+const API_HOST = "http://188.166.251.247:8006";
 const API_BASE = `${API_HOST}/accounts`;
 const ENDPOINTS = {
   checkPhone: `${API_BASE}/api/check-phone/`,

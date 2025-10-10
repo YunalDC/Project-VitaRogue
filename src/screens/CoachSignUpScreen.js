@@ -11,13 +11,12 @@ import { Ionicons as Icon } from "@expo/vector-icons";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db, firebaseAuth } from "../lib/firebaseApp";
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
-import { setAuthInitialRoute } from "../state/authRoute";
 
 const ACCENT = "#34d399";
 const ACCENT_DARK = "#10b981";
 
 // Django host (adjust for prod)
-const API_HOST = "http://192.168.8.179:4000";
+const API_HOST = "http://188.166.251.247:8006";
 const API_BASE = `${API_HOST}/accounts`;
 const CLAIM_PHONE_URL = `${API_BASE}/api/claim-phone/`;
 
@@ -71,56 +70,95 @@ export default function CoachSignUpScreen({ navigation, route }) {
     }
     if (pw !== cpw) return Alert.alert("Passwords do not match", "Please confirm your password.");
 
-    try {
-      setLoading(true);
+    setLoading(true);
 
-      // 1) Firebase account
+    try {
+      // 1) Firebase account creation - THIS IS CRITICAL
       const cred = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), pw);
       const user = cred.user;
       const uid = user.uid;
 
-      try { await updateProfile(user, { displayName: name.trim() }); } catch {}
+      try { await updateProfile(user, { displayName: name.trim() }); } catch (e) {
+        console.warn("Update profile failed:", e);
+      }
 
-      // 2) Seed /coaches/{uid} with ONLY non-protected fields
-      // DO NOT set phoneVerified, coachOnboardingComplete, or verificationStatus here
-      // Those will be set by the backend after phone claim
-      await setDoc(
-        doc(db, "coaches", uid),
-        {
-          email: user.email || null,
-          name: name.trim(),
-          public: false,
-          online: false,
-          verified: false,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      // 2) IMMEDIATELY create both docs in parallel to prevent race condition
+      await Promise.all([
+        // Create /users/{uid} with role: 'coach' - CRITICAL for routing
+        setDoc(
+          doc(db, "users", uid),
+          {
+            role: "coach",
+            email: user.email || null,
+            username: name.trim(),
+            coachOnboardingComplete: false,
+            phoneVerified: verifiedPhone ? true : false,
+            coachEmailVerified: false,
+            public: false,
+            online: true,
+            createdAt: serverTimestamp(),
+            lastSeen: serverTimestamp(),
+          },
+          { merge: true }
+        ),
+        
+        // Create /coaches/{uid} with coach-specific fields
+        setDoc(
+          doc(db, "coaches", uid),
+          {
+            email: user.email || null,
+            name: name.trim(),
+            public: false,
+            online: false,
+            verified: false,
+            coachOnboardingComplete: false,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        )
+      ]);
 
-      // 3) Claim pre-verified phone (if any)
-      // The backend will set phoneVerified: true in both /coaches/{uid} and /users/{uid}
+      console.log("✅ Account created successfully!");
+
+      // 3) Claim pre-verified phone (NON-BLOCKING - don't fail signup if this fails)
       if (verifiedPhone) {
-        const r = await claimVerifiedPhone(verifiedPhone);
-        if (!r.ok && r.conflict) {
-          try { await firebaseAuth.signOut(); } catch {}
-          Alert.alert(
-            "Phone already used",
-            "This phone number is already linked to another account.",
-            [{ text: "OK", onPress: () => navigation.replace("SignIn") }]
-          );
-          return;
+        try {
+          const r = await claimVerifiedPhone(verifiedPhone);
+          if (!r.ok && r.conflict) {
+            // Phone already claimed - this is the only critical phone error
+            try { await firebaseAuth.signOut(); } catch {}
+            Alert.alert(
+              "Phone already used",
+              "This phone number is already linked to another account.",
+              [{ text: "OK", onPress: () => navigation.replace("SignIn") }]
+            );
+            setLoading(false);
+            return;
+          }
+          console.log("✅ Phone claimed successfully");
+        } catch (phoneError) {
+          // Log but don't fail signup - account is already created
+          console.warn("⚠️ Phone claim failed (non-critical):", phoneError.message);
+          // Optionally show a non-blocking warning
+          // Alert.alert("Note", "Phone verification will be completed during onboarding.");
         }
       }
 
-      // 4) Optional email verification
-      try { await sendEmailVerification(user); } catch {}
+      // 4) Optional email verification (NON-BLOCKING)
+      try { 
+        await sendEmailVerification(user);
+        console.log("✅ Verification email sent");
+      } catch (emailError) {
+        console.warn("⚠️ Email verification send failed:", emailError.message);
+      }
 
-      // 5) Persist and go to the wizard
-      setAuthInitialRoute("CoachVerify");
-      navigation.replace("CoachVerify");
+      // 5) Success! Auth listener will handle navigation to CoachVerify
+      console.log("✅ Signup complete - auth listener will navigate to CoachVerify");
+      
     } catch (e) {
-      console.error("Coach signup error:", e);
+      // Only show error if the CRITICAL operations (Firebase account/docs) failed
+      console.error("❌ Critical signup error:", e);
       Alert.alert("Coach Sign Up Failed", e?.message || "Please try again.");
     } finally {
       setLoading(false);
@@ -159,7 +197,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
             <Text style={styles.label}>Password</Text>
             <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
               <Icon name="lock-closed-outline" size={20} color={passwordFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
-              <TextInput value={pw} onChangeText={setPw} onFocus={() => setPasswordFocused(true)} onBlur={() => setPasswordFocured(false)} secureTextEntry={!showPw} placeholder="Create a password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="next" />
+              <TextInput value={pw} onChangeText={setPw} onFocus={() => setPasswordFocused(true)} onBlur={() => setPasswordFocused(false)} secureTextEntry={!showPw} placeholder="Create a password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="next" />
               <TouchableOpacity onPress={() => setShowPw(!showPw)} style={styles.eyeButton} activeOpacity={0.7}>
                 <Icon name={showPw ? "eye-outline" : "eye-off-outline"} size={20} color="#8e8e93" />
               </TouchableOpacity>

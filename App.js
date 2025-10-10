@@ -283,7 +283,7 @@ function CoachStack() {
       screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}
     >
       <Stack.Screen name="CoachDashboard" component={CoachDashboardScreen} />
-  <Stack.Screen name="Discover" component={DiscoverScreen} />
+      <Stack.Screen name="Discover" component={DiscoverScreen} />
       <Stack.Screen name="CoachClients" component={CoachClientsScreen} />
       <Stack.Screen name="CoachClientProfile" component={CoachClientProfile} />
       <Stack.Screen name="ClientMessaging" component={CoachClientMessaging} />
@@ -383,9 +383,42 @@ export default function App() {
       try {
         const userSnap = await getDoc(userRef);
         console.log('[AuthListener] user doc exists?', userSnap.exists());
+        
         if (!userSnap.exists()) {
-          // Create a minimal baseline user doc to avoid race with SignInScreen creation
+          // Check if this is a coach by looking for /coaches/{uid} doc first
           try {
+            console.log('[AuthListener] user doc does not exist, checking if coach...');
+            const coachSnap = await getDoc(coachRef);
+            
+            if (coachSnap.exists()) {
+              // This is a coach account - DO NOT create user doc, let CoachSignUpScreen handle it
+              console.log('[AuthListener] coach doc found, waiting for user doc creation by CoachSignUpScreen');
+              
+              // Set up listeners and wait for the user doc to be created by CoachSignUpScreen
+              unsubUser = onSnapshot(userRef, (snap) => {
+                const data = snap.data() || {};
+                console.log('[AuthListener][onSnapshot user] role=', data.role, 'coachOnboardingComplete=', data.coachOnboardingComplete);
+                if (data.role === 'coach') {
+                  const needsVerify = !data.coachOnboardingComplete || !data.phoneVerified || !data.coachEmailVerified;
+                  if (needsVerify) {
+                    setAuthGateTarget("CoachVerify");
+                    setRoute("auth");
+                  } else {
+                    setRoute("coach");
+                  }
+                }
+              });
+              
+              unsubCoach = onSnapshot(coachRef, (snap) => { 
+                console.log('[AuthListener][onSnapshot coach] doc', !!snap.exists()); 
+                setCoachProfile(snap.data() || null); 
+              });
+              
+              setBooting(false);
+              return;
+            }
+            
+            // Not a coach - create regular user doc
             console.log('[AuthListener] creating baseline user doc');
             await setDoc(userRef, {
               role: 'user',
@@ -410,7 +443,12 @@ export default function App() {
               console.log('[AuthListener][onSnapshot user] role=', data.role, 'onboardingComplete=', data.onboardingComplete);
               if (data.role === 'coach') {
                 const needsVerify = !data.coachOnboardingComplete || !data.phoneVerified || !data.coachEmailVerified;
-                setRoute(needsVerify ? 'auth' : 'coach');
+                if (needsVerify) {
+                  setAuthGateTarget("CoachVerify");
+                  setRoute("auth");
+                } else {
+                  setRoute("coach");
+                }
               } else {
                 setRoute(data.onboardingComplete ? 'main' : 'onboarding');
               }
@@ -424,8 +462,7 @@ export default function App() {
           return; // exit early after creation/setup
         }
 
-
-  const userData = userSnap.data() || {};
+        const userData = userSnap.data() || {};
         const role = userData.role;
         console.log('[AuthListener] existing user role=', role, 'onboardingComplete=', userData.onboardingComplete);
 
@@ -482,7 +519,6 @@ export default function App() {
       }
     });
 
-
     return () => {
       unsubUser?.();
       unsubCoach?.();
@@ -490,7 +526,7 @@ export default function App() {
     };
   }, [firstLaunch]);
 
-    // When nav is ready or route changes, reset to the right root
+  // When nav is ready or route changes, reset to the right root
   // Resilient reset loop: keeps trying until nav container ready
   useEffect(() => {
     if (!route || booting) return;
@@ -522,7 +558,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, [route, booting]);
 
-   // Fallback safety: if onboardingComplete is true but still on auth after 4s, force main
+  // Fallback safety: if onboardingComplete is true but still on auth after 4s, force main
   useEffect(() => {
     if (route === 'auth') {
       const id = setTimeout(() => {
@@ -540,7 +576,6 @@ export default function App() {
       return () => clearTimeout(id);
     }
   }, [route]);
-
 
   if (booting || firstLaunch === null || !route) return <LoadingScreen />;
 
