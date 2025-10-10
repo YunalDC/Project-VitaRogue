@@ -91,6 +91,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
           name: name.trim(),
           public: false,
           online: false,
+          verified: false,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },

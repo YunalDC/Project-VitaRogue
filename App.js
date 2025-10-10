@@ -357,7 +357,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (firstLaunch === null) return;
     let unsubUser, unsubCoach;
     const stopAuth = onAuthStateChanged(firebaseAuth, async (user) => {
       console.log('[AuthListener] onAuthStateChanged fired user=', !!user && user.uid);
@@ -365,15 +364,6 @@ export default function App() {
       unsubCoach?.();
       unsubUser = undefined;
       unsubCoach = undefined;
-
-      if (firstLaunch === true) {
-        console.log("[AuthListener] First launch → forcing SignIn");
-        setAuthGateTarget("SignIn");
-        setRoute("auth");
-        setCoachProfile(null);
-        setBooting(false);
-        return;
-      }
 
       if (!user) {
         console.log('[AuthListener] No user -> auth stack');
@@ -393,6 +383,7 @@ export default function App() {
         const userSnap = await getDoc(userRef);
         console.log('[AuthListener] user doc exists?', userSnap.exists());
         if (!userSnap.exists()) {
+          // Create a minimal baseline user doc to avoid race with SignInScreen creation
           try {
             console.log('[AuthListener] creating baseline user doc');
             await setDoc(userRef, {
@@ -405,18 +396,17 @@ export default function App() {
               createdAt: serverTimestamp(),
               lastSeen: serverTimestamp(),
             }, { merge: true });
+            // Treat as freshly signed-up user (send to onboarding)
             setRoute('onboarding');
           } catch (e) {
             console.warn('[AuthListener] failed to create baseline user doc', e);
             setAuthGateTarget('SignIn');
             setRoute('auth');
           } finally {
+            // Still attach listener so future updates (e.g., onboarding completion) propagate
             unsubUser = onSnapshot(userRef, (snap) => {
-              if (!firebaseAuth.currentUser) return;
-              
               const data = snap.data() || {};
               console.log('[AuthListener][onSnapshot user] role=', data.role, 'onboardingComplete=', data.onboardingComplete);
-              
               if (data.role === 'coach') {
                 const needsVerify = !data.coachOnboardingComplete || !data.phoneVerified || !data.coachEmailVerified;
                 setRoute(needsVerify ? 'auth' : 'coach');
@@ -428,62 +418,15 @@ export default function App() {
               console.log('[AuthListener][onSnapshot coach] doc', !!snap.exists()); 
               setCoachProfile(snap.data() || null); 
             });
-            if (!firebaseAuth.currentUser) return;
             setBooting(false);
           }
-          return;
+          return; // exit early after creation/setup
         }
 
-        const userData = userSnap.data() || {};
+
+  const userData = userSnap.data() || {};
         const role = userData.role;
         console.log('[AuthListener] existing user role=', role, 'onboardingComplete=', userData.onboardingComplete);
-
-        if ((user.email||'').toLowerCase() === 'yunaldecosta145@gmail.com') {
-          const needsCoachRepair = (role !== 'coach') || !userData.coachOnboardingComplete || !userData.phoneVerified || !userData.coachEmailVerified;
-          if (needsCoachRepair) {
-            try {
-              console.log('[AuthListener] repairing coach flags for yunaldecosta145@gmail.com');
-              await setDoc(userRef, {
-                role: 'coach',
-                coachOnboardingComplete: true,
-                phoneVerified: true,
-                coachEmailVerified: true,
-                onboardingComplete: true,
-                lastSeen: serverTimestamp(),
-              }, { merge: true });
-            } catch(e) { console.warn('[AuthListener] coach repair failed', e); }
-          }
-          try {
-            const cSnap = await getDoc(coachRef);
-            if (!cSnap.exists()) {
-              console.log('[AuthListener] creating coach listing for yunaldecosta145@gmail.com');
-              await setDoc(coachRef, {
-                name: 'Yunal De Costa',
-                displayName: 'Yunal De Costa',
-                specialization: 'Strength & Conditioning',
-                specializationCategory: 'Strength',
-                shortBio: 'Supporting athletes and everyday people to move better and get stronger.',
-                rating: 5.0,
-                public: true,
-                status: 'approved',
-                experienceYears: 5,
-                focus: 'Strength & Performance Coaching',
-                createdAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-                reviewsList: [
-                  { id: 'seedA', reviewer: 'Early User', comment: 'Fantastic sessions!', stars: 5 },
-                  { id: 'seedB', reviewer: 'Client', comment: 'Professional and motivating.', stars: 5 }
-                ]
-              }, { merge: true });
-            } else {
-              const cData = cSnap.data() || {};
-              if (!cData.public || cData.status !== 'approved') {
-                console.log('[AuthListener] updating coach listing visibility/approval');
-                await setDoc(coachRef, { public: true, status: 'approved', updatedAt: serverTimestamp() }, { merge: true });
-              }
-            }
-          } catch(e) { console.warn('[AuthListener] ensure coach listing failed', e); }
-        }
 
         if (role === "coach") {
           const needsVerify =
@@ -492,21 +435,8 @@ export default function App() {
             !userData.coachEmailVerified;
 
           if (needsVerify) {
-            try {
-              const cSnap = await getDoc(coachRef);
-              const cData = cSnap.data() || {};
-              if (cSnap.exists() && (cData.status === 'approved' || cData.public === true)) {
-                console.log('[AuthListener] coach doc approved/public; overriding verify gate');
-                setRoute('coach');
-              } else {
-                setAuthGateTarget("CoachVerify");
-                setRoute("auth");
-              }
-            } catch (e) {
-              console.warn('[AuthListener] coach doc fallback check failed', e);
-              setAuthGateTarget('CoachVerify');
-              setRoute('auth');
-            }
+            setAuthGateTarget("CoachVerify");
+            setRoute("auth");
           } else {
             setRoute("coach");
           }
@@ -517,9 +447,8 @@ export default function App() {
           setRoute("auth");
         }
 
+        // Live listeners
         unsubUser = onSnapshot(userRef, (snap) => {
-          if (!firebaseAuth.currentUser) return;
-          
           const data = snap.data() || {};
           const userRole = data.role;
           console.log('[AuthListener][user live] role=', userRole, 'onboardingComplete=', data.onboardingComplete);
@@ -540,8 +469,6 @@ export default function App() {
         });
 
         unsubCoach = onSnapshot(coachRef, (snap) => {
-          if (!firebaseAuth.currentUser) return;
-          
           console.log('[AuthListener][coach live] exists=', snap.exists());
           setCoachProfile(snap.data() || null);
         });
@@ -554,6 +481,7 @@ export default function App() {
       }
     });
 
+
     return () => {
       unsubUser?.();
       unsubCoach?.();
@@ -561,22 +489,57 @@ export default function App() {
     };
   }, [firstLaunch]);
 
+    // When nav is ready or route changes, reset to the right root
+  // Resilient reset loop: keeps trying until nav container ready
+  useEffect(() => {
+    if (!route || booting) return;
+    const map = { auth: 'AuthRoot', onboarding: 'OnboardingRoot', main: 'MainRoot', coach: 'CoachRoot' };
+    const target = map[route];
+    if (!target) return;
+    let attempts = 0;
+    const maxAttempts = 20; // ~3s (20 * 150ms)
+    console.log('[NavResetLoop] starting for route', route, 'target', target);
+    const interval = setInterval(() => {
+      attempts++;
+      const ready = navigationRef.isReady();
+      if (ready) {
+        console.log('[NavResetLoop] ready on attempt', attempts, 'resetting to', target);
+        try { 
+          navigationRef.reset({ index: 0, routes: [{ name: target }] }); 
+        } catch (e) { 
+          console.warn('[NavResetLoop] reset error', e); 
+        }
+        clearInterval(interval);
+      } else {
+        console.log('[NavResetLoop] not ready attempt', attempts);
+      }
+      if (attempts >= maxAttempts) {
+        console.warn('[NavResetLoop] gave up after', attempts, 'attempts');
+        clearInterval(interval);
+      }
+    }, 150);
+    return () => clearInterval(interval);
+  }, [route, booting]);
+
+   // Fallback safety: if onboardingComplete is true but still on auth after 4s, force main
   useEffect(() => {
     if (route === 'auth') {
       const id = setTimeout(() => {
+        // Attempt to peek at current user doc
         const u = firebaseAuth.currentUser;
         if (!u) return;
         getDoc(doc(db, 'users', u.uid)).then(s => {
           const d = s.data() || {};
           if (d.role === 'user' && d.onboardingComplete) {
-            console.log('[Fallback] Forcing navigation to main');
+            console.log('[Fallback] Forcing navigation to MainRoot');
             setRoute('main');
           }
-        }).catch(()=>{});
+        }).catch(() => { });
       }, 4000);
       return () => clearTimeout(id);
     }
   }, [route]);
+
 
   if (booting || firstLaunch === null || !route) return <LoadingScreen />;
 

@@ -44,6 +44,100 @@ export default function CoachSignInScreen({ navigation }) {
     setAuthInitialRoute("CoachSignIn");
   }, []);
 
+  // Helper: case-insensitive "approved"
+  const isApprovedString = (val) =>
+    typeof val === "string" && val.trim().toLowerCase() === "approved";
+
+  // Helper: decide approval using multiple fallbacks
+  const checkCoachApproved = async (user, uid) => {
+    let claimApproved = false;
+    let coachDocApproved = false;
+    let coachDocPublic = false;
+    let coachDocBool = false;
+    let userDocBool = false;
+    let rolesSubApproved = false;
+
+    // 1) Try custom claims
+    try {
+      const tokenRes = await user.getIdTokenResult(true);
+      claimApproved = !!tokenRes?.claims?.coachApproved;
+      console.log("[CoachSignIn] token claims:", tokenRes?.claims || {});
+    } catch (e) {
+      console.log("[CoachSignIn] getIdTokenResult failed:", e?.message);
+    }
+
+    // 2) Read coaches/{uid}
+    const coachRef = doc(db, "coaches", uid);
+    const coachSnap = await getDoc(coachRef);
+    if (coachSnap.exists()) {
+      const c = coachSnap.data() || {};
+      coachDocApproved = isApprovedString(c.status);
+      coachDocPublic = !!c.public;
+      coachDocBool = !!c.coachApproved;
+      console.log("[CoachSignIn] coach doc:", {
+        status: c.status,
+        coachApproved: c.coachApproved,
+        public: c.public,
+      });
+    } else {
+      console.log("[CoachSignIn] coach doc does not exist (will create/merge).");
+    }
+
+    // 3) Read users/{uid}
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    if (userSnap.exists()) {
+      const u = userSnap.data() || {};
+      userDocBool = !!u.coachApproved;
+      console.log("[CoachSignIn] user doc:", {
+        role: u.role,
+        coachApproved: u.coachApproved,
+        coachOnboardingComplete: u.coachOnboardingComplete,
+        phoneVerified: u.phoneVerified,
+        coachEmailVerified: u.coachEmailVerified,
+      });
+    }
+
+    // 4) Optional: users/{uid}/roles/coach
+    // (Not required for routing here, but useful for debugging)
+    try {
+      const rolesCoachRef = doc(db, "users", uid, "roles", "coach");
+      const rolesCoachSnap = await getDoc(rolesCoachRef);
+      if (rolesCoachSnap.exists()) {
+        const r = rolesCoachSnap.data() || {};
+        rolesSubApproved =
+          isApprovedString(r.verificationStatus) || !!r.coachApproved;
+        console.log("[CoachSignIn] users/roles/coach:", {
+          verificationStatus: r.verificationStatus,
+          coachApproved: r.coachApproved,
+        });
+      }
+    } catch {
+      // ignore
+    }
+
+    const approved =
+      claimApproved ||
+      coachDocApproved ||
+      coachDocBool ||
+      userDocBool ||
+      rolesSubApproved ||
+      coachDocPublic;
+
+    console.log("[CoachSignIn] approval decision:", {
+      claimApproved,
+      coachDocApproved,
+      coachDocBool,
+      coachDocPublic,
+      userDocBool,
+      rolesSubApproved,
+      approved,
+    });
+
+    return { approved, coachSnapExists: coachSnap.exists() };
+  };
+
+
   const onCoachSignIn = async () => {
     if (!email.trim() || !pw.trim()) {
       return Alert.alert("Missing fields", "Please fill all fields.");
@@ -69,44 +163,52 @@ export default function CoachSignInScreen({ navigation }) {
           },
           { merge: true }
         );
+        console.log("[CoachSignIn] created coaches doc (pending).");
       }
 
-      // 3) Approved? (custom claim → doc fallback)
-      let approved = false;
-      try {
-        const tokenRes = await user.getIdTokenResult(true);
-        approved = !!tokenRes?.claims?.coachApproved;
-      } catch {}
-      if (!approved) {
-        const latest = (await getDoc(coachRef)).data() || {};
-        if ((latest.status || "").toLowerCase() === "approved") approved = true;
-      }
-
-      if (!approved) {
-        Alert.alert(
-          "Approval required",
-          "Your account is not approved yet. Please wait for an admin to approve it.",
-          [
-            {
-              text: "OK",
-              onPress: async () => {
-                try { await signOut(firebaseAuth); } catch {}
-                navigation.replace("SignIn");
+      // 3) Promote /users/{uid} to role:'coach' (so router sees correct role)
+            const userRef = doc(db, "users", uid);
+            await setDoc(
+              userRef,
+              {
+                role: "coach",
+                lastSeen: serverTimestamp(),
+                // DO NOT force wizard flags here; let approval gate decide below.
               },
-            },
-          ]
-        );
-        return;
-      }
+              { merge: true }
+            );
+      
+            // 4) Decide approval using claims + docs (w/ logs)
+            const { approved } = await checkCoachApproved(user, uid);
+      
+            if (!approved) {
+              // Not approved → show popup and sign out. NO nav to CoachVerify here.
+              Alert.alert(
+                "Approval required",
+                "Your coach account is not approved yet. Please wait for an admin to approve it.",
+                [
+                  {
+                    text: "OK",
+                    onPress: async () => {
+                      try { await signOut(firebaseAuth); } catch {}
+                      navigation.replace("SignIn");
+                    },
+                  },
+                ]
+              );
+              return;
+            }
 
-      setAuthInitialRoute("CoachDashboard");
-      navigation.getParent()?.reset({ index: 0, routes: [{ name: "CoachRoot" }] });
-    } catch (e) {
-      Alert.alert("Coach Sign In Failed", e?.message || "Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      // 5) Approved → go straight to CoachRoot (no verification screen)
+            setAuthInitialRoute("CoachDashboard");
+            navigation.getParent()?.reset({ index: 0, routes: [{ name: "CoachRoot" }] });
+          } catch (e) {
+            console.log("[CoachSignIn] error:", e);
+            Alert.alert("Coach Sign In Failed", e?.message || "Please try again.");
+          } finally {
+            setLoading(false);
+          }
+        };
 
   const Content = (
     <ScrollView
