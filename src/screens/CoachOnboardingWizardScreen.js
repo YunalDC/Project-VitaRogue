@@ -20,7 +20,7 @@ import { firebaseAuth as auth, db } from "../lib/firebaseApp";
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 /** ==== API CONFIG (server mounted at /accounts on :4000) ==== */
-const API_HOST = "http://192.168.8.179:4000";
+const API_HOST = "http://188.166.251.247:8006";
 const API_BASE = `${API_HOST}/accounts`;
 const BACKEND_ENDPOINT = `${API_BASE}/api/coach-verification-upload/`;
 
@@ -306,6 +306,11 @@ export default function CoachVerificationScreen({ navigation, route }) {
         placeholderTextColor={COLORS.muted}
         keyboardType={keyboardType}
         multiline={multiline}
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete="off"
+        textContentType="none"
+        importantForAutofill="no"
         returnKeyType="next"
       />
     </View>
@@ -515,3 +520,4 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: COLORS.bg },
   loadingText: { marginTop: 10, color: COLORS.text },
 });
+

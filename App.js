@@ -31,6 +31,7 @@ import CoachDashboardScreen from "./src/screens/CoachDashboardScreen";
 import CoachClientsScreen from "./src/screens/CoachClientsScreen";
 import CoachClientProfile from "./src/screens/CoachClientProfile";
 import CoachClientMessaging from "./src/screens/CoachClientMessaging";
+import CoachNotificationsScreen from "./src/screens/CoachNotificationsScreen";
 import WorkoutNutritionPlansScreen from "./src/screens/WorkoutNutritionPlansScreen";
 import WorkoutPlanBuilderScreen from "./src/screens/WorkoutPlanBuilderScreen";
 import NutritionPlanBuilderScreen from "./src/screens/NutritionPlanBuilderScreen";
@@ -67,6 +68,7 @@ import ExerciseDetailScreen from "./src/screens/ExerciseDetailScreen";
 import ArticleDetailScreen from "./src/screens/ArticleDetailScreen";
 import CoachPublicProfileScreen from "./src/screens/CoachPublicProfileScreen";
 import ProgressScreen from './src/screens/ProgressScreen';
+import UserNotificationsScreen from './src/screens/UserNotificationsScreen';
 
 // Settings screens
 import CoachAccountSettingsScreen from "./src/screens/settings/CoachAccountSettingsScreen";
@@ -152,6 +154,7 @@ function MainStack() {
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="UserNotifications" component={UserNotificationsScreen} />
       <Stack.Screen name="EditProfileScreen" component={EditProfileScreen} options={{ headerShown: false }} />
       
       {/* ===== Settings Screens ===== */}
@@ -283,6 +286,7 @@ function CoachStack() {
       screenOptions={{ headerShown: false, animation: "slide_from_right", animationDuration: 200 }}
     >
       <Stack.Screen name="CoachDashboard" component={CoachDashboardScreen} />
+      <Stack.Screen name="CoachNotifications" component={CoachNotificationsScreen} />
       <Stack.Screen name="Discover" component={DiscoverScreen} />
       <Stack.Screen name="CoachClients" component={CoachClientsScreen} />
       <Stack.Screen name="CoachClientProfile" component={CoachClientProfile} />

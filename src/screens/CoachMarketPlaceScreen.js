@@ -175,6 +175,70 @@ export default function CoachMarketplaceScreen({ navigation }) {
     }
   }, [currentUser, navigation, creatingChatCoachId]);
 
+  const requestCoach = useCallback(async (coach) => {
+    if (!currentUser) {
+      Alert.alert('Authentication Required', 'Please sign in to request a coach.');
+      return;
+    }
+    
+    if (currentUser.uid === coach.id) {
+      Alert.alert('Cannot Request Yourself', 'You cannot send a coach request to yourself.');
+      return;
+    }
+
+    console.log('[CoachMarketplace] requestCoach starting for coach:', coach.id, 'from user:', currentUser.uid);
+
+    // Debug: Check if this coach exists in the coaches collection
+    const coachRef = doc(db, 'coaches', coach.id);
+    const coachSnap = await getDoc(coachRef);
+    console.log('[CoachMarketplace] Coach document exists:', coachSnap.exists(), 'coach data keys:', coachSnap.exists() ? Object.keys(coachSnap.data()) : 'none');
+
+    try {
+      // Get current user's profile data
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.exists() ? userSnap.data() : {};
+      
+      const userName = userData.name || userData.displayName || currentUser.displayName || 'User';
+      
+      console.log('[CoachMarketplace] Creating notification for recipient:', coach.id, 'from sender:', currentUser.uid);
+      
+      // Create coach request notification
+      const notificationRef = doc(collection(db, 'notifications'));
+      await setDoc(notificationRef, {
+        type: 'coach_request',
+        recipientId: coach.id,
+        senderId: currentUser.uid,
+        senderName: userName,
+        senderPhotoURL: userData.photoURL || currentUser.photoURL || null,
+        coachName: coach.name || coach.displayName || 'Coach',
+        title: 'New Coach Request',
+        message: `${userName} wants you as their personal coach. They're looking for professional guidance to achieve their fitness goals.`,
+        data: {
+          requesterId: currentUser.uid,
+          requesterName: userName,
+          requesterPhotoURL: userData.photoURL || currentUser.photoURL || null,
+          coachId: coach.id,
+          coachName: coach.name || coach.displayName || 'Coach',
+        },
+        status: 'pending',
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+
+      console.log('[CoachMarketplace] Notification created successfully with ID:', notificationRef.id);
+
+      Alert.alert(
+        'Request Sent!', 
+        `Your coaching request has been sent to ${coach.name || 'the coach'}. They will be notified and can choose to accept you as a client.`
+      );
+
+    } catch (error) {
+      console.error('[CoachMarketplace] requestCoach error:', error);
+      Alert.alert('Request Failed', `Unable to send coach request. Error: ${error.message}`);
+    }
+  }, [currentUser]);
+
   const toggleExpand = (id) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpandedId(expandedId === id ? null : id);
@@ -290,18 +354,28 @@ export default function CoachMarketplaceScreen({ navigation }) {
           <View style={styles.expanded}>
             <Text style={styles.bio}>{bio}</Text>
 
-            <View style={{ flexDirection:'row', gap:8, marginBottom:12 }}>
+            <View style={{ flexDirection:'row', gap:8, marginBottom:12, flexWrap: 'wrap' }}>
               {!isOwnProfile && (
-                <TouchableOpacity
-                  style={styles.whatsappButton}
-                  onPress={() => startChat(item)}
-                  disabled={creatingChatCoachId===item.id}
-                >
-                  <Ionicons name="chatbubbles" size={18} color={BG} />
-                  <Text style={styles.whatsappText}>
-                    {creatingChatCoachId===item.id ? 'Loading...' : 'Message'}
-                  </Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.whatsappButton}
+                    onPress={() => startChat(item)}
+                    disabled={creatingChatCoachId===item.id}
+                  >
+                    <Ionicons name="chatbubbles" size={18} color={BG} />
+                    <Text style={styles.whatsappText}>
+                      {creatingChatCoachId===item.id ? 'Loading...' : 'Message'}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.whatsappButton, { backgroundColor: '#2563eb' }]}
+                    onPress={() => requestCoach(item)}
+                  >
+                    <Ionicons name="person-add" size={18} color="#fff" />
+                    <Text style={[styles.whatsappText, { color: '#fff' }]}>Request Coach</Text>
+                  </TouchableOpacity>
+                </>
               )}
               
               <TouchableOpacity

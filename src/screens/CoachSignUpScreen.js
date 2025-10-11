@@ -179,7 +179,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
             <Text style={styles.label}>Full Name</Text>
             <View style={[styles.inputWrapper, nameFocused && styles.inputWrapperFocused]}>
               <Icon name="person-outline" size={20} color={nameFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
-              <TextInput value={name} onChangeText={setName} onFocus={() => setNameFocused(true)} onBlur={() => setNameFocused(false)} placeholder="Jane Doe" placeholderTextColor="#8e8e93" style={styles.textInput} autoCapitalize="words" returnKeyType="next" />
+              <TextInput value={name} onChangeText={setName} onFocus={() => setNameFocused(true)} onBlur={() => setNameFocused(false)} placeholder="Jane Doe" placeholderTextColor="#8e8e93" style={styles.textInput} autoCapitalize="words" autoCorrect={false} autoComplete="off" textContentType="none" importantForAutofill="no" returnKeyType="next" />
             </View>
           </View>
 
@@ -188,7 +188,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
             <Text style={styles.label}>Email Address</Text>
             <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
               <Icon name="mail-outline" size={20} color={emailFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
-              <TextInput value={email} onChangeText={setEmail} onFocus={() => setEmailFocused(true)} onBlur={() => setEmailFocused(false)} autoCapitalize="none" keyboardType="email-address" placeholder="coach@email.com" placeholderTextColor="#8e8e93" style={styles.textInput} autoComplete="email" returnKeyType="next" />
+              <TextInput value={email} onChangeText={setEmail} onFocus={() => setEmailFocused(true)} onBlur={() => setEmailFocused(false)} autoCapitalize="none" keyboardType="email-address" placeholder="coach@email.com" placeholderTextColor="#8e8e93" style={styles.textInput} autoCorrect={false} autoComplete="off" textContentType="none" importantForAutofill="no" returnKeyType="next" />
             </View>
           </View>
 
@@ -197,7 +197,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
             <Text style={styles.label}>Password</Text>
             <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
               <Icon name="lock-closed-outline" size={20} color={passwordFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
-              <TextInput value={pw} onChangeText={setPw} onFocus={() => setPasswordFocused(true)} onBlur={() => setPasswordFocused(false)} secureTextEntry={!showPw} placeholder="Create a password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="next" />
+              <TextInput value={pw} onChangeText={setPw} onFocus={() => setPasswordFocused(true)} onBlur={() => setPasswordFocused(false)} secureTextEntry={!showPw} placeholder="Create a password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="next" autoCapitalize="none" autoCorrect={false} autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no" passwordRules="" />
               <TouchableOpacity onPress={() => setShowPw(!showPw)} style={styles.eyeButton} activeOpacity={0.7}>
                 <Icon name={showPw ? "eye-outline" : "eye-off-outline"} size={20} color="#8e8e93" />
               </TouchableOpacity>
@@ -209,7 +209,7 @@ export default function CoachSignUpScreen({ navigation, route }) {
             <Text style={styles.label}>Confirm Password</Text>
             <View style={[styles.inputWrapper, cpwFocused && styles.inputWrapperFocused]}>
               <Icon name="lock-closed-outline" size={20} color={cpwFocused ? ACCENT : "#8e8e93"} style={styles.inputIcon} />
-              <TextInput value={cpw} onChangeText={setCpw} onFocus={() => setCpwFocused(true)} onBlur={() => setCpwFocused(false)} secureTextEntry={!showCpw} placeholder="Re-enter your password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="go" onSubmitEditing={onCoachSignUp} />
+              <TextInput value={cpw} onChangeText={setCpw} onFocus={() => setCpwFocused(true)} onBlur={() => setCpwFocused(false)} secureTextEntry={!showCpw} placeholder="Re-enter your password" placeholderTextColor="#8e8e93" style={styles.textInput} returnKeyType="go" onSubmitEditing={onCoachSignUp} autoCapitalize="none" autoCorrect={false} autoComplete="off" textContentType="oneTimeCode" importantForAutofill="no" passwordRules="" />
               <TouchableOpacity onPress={() => setShowCpw(!showCpw)} style={styles.eyeButton} activeOpacity={0.7}>
                 <Icon name={showCpw ? "eye-outline" : "eye-off-outline"} size={20} color="#8e8e93" />
               </TouchableOpacity>
@@ -285,3 +285,4 @@ const styles = {
   buttonGradient: { paddingVertical: 14, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", minHeight: 52 },
   buttonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 };
+

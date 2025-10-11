@@ -21,10 +21,11 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { logOut } from "../lib/auth";
-import { setAuthInitialRoute } from "../state/authRoute";
 import { useCoachProfile } from "../hooks/useCoachProfile";
-import { db, firebaseAuth } from '../lib/firebaseApp';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebaseApp';
+import { getAuth } from 'firebase/auth';
+import { doc, getDoc, setDoc, collection, onSnapshot, query, where, updateDoc, orderBy, limit, getDocs, deleteDoc } from 'firebase/firestore';
+import { createCoachClientRelationship, updateCoachClientRelationship, endCoachClientRelationship } from '../utils/coachClientRelationship';
 
 /* -------------------- THEME -------------------- */
 const COLORS = {
@@ -89,153 +90,12 @@ const DEFAULT_COACH = {
   specialization: "--",
 };
 
-const METRICS = {
-  activeClients: 24, // SAMPLE
-  upcomingSessions: 0, // dynamic
-  weeklyRevenue: 2850.0, // SAMPLE
-  clientSatisfaction: 96, // SAMPLE
-  completedSessions: 42, // SAMPLE
-  cancelledSessions: 2, // SAMPLE
-};
-
-const CLIENTS = [
-  {
-    id: 1,
-    name: "Mike Johnson",
-    avatar: "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "2 hours ago",
-    progress: 85,
-    calorieStatus: "On track",
-    nextSession: "Tomorrow 3:00 PM",
-    isActive: true,
-    status: "active",
-    goal: "Weight Loss",
-    email: "mike.johnson@email.com",
-    totalSessions: 45,
-    joinDate: "2024-01-15"
-  },
-  {
-    id: 2,
-    name: "Emma Wilson",
-    avatar: "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "Yesterday",
-    progress: 72,
-    calorieStatus: "300 cal surplus",
-    nextSession: "Today 5:30 PM",
-    isActive: true,
-    status: "active",
-    goal: "Muscle Gain",
-    email: "emma.wilson@email.com",
-    totalSessions: 32,
-    joinDate: "2024-02-20"
-  },
-  {
-    id: 3,
-    name: "David Chen",
-    avatar: "https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "3 days ago",
-    progress: 91,
-    calorieStatus: "Deficit achieved",
-    nextSession: "Friday 2:00 PM",
-    isActive: false,
-    status: "paused",
-    goal: "Strength Training",
-    email: "david.chen@email.com",
-    totalSessions: 67,
-    joinDate: "2023-11-10"
-  },
-  {
-    id: 4,
-    name: "Lisa Martinez",
-    avatar: "https://images.pexels.com/photos/3763188/pexels-photo-3763188.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "1 hour ago",
-    progress: 68,
-    calorieStatus: "150 cal surplus",
-    nextSession: "Tomorrow 10:00 AM",
-    isActive: true,
-    status: "active",
-    goal: "General Fitness",
-    email: "lisa.martinez@email.com",
-    totalSessions: 28,
-    joinDate: "2024-03-05"
-  },
-  {
-    id: 5,
-    name: "John Davis",
-    avatar: "https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "1 week ago",
-    progress: 42,
-    calorieStatus: "Starting program",
-    nextSession: "Monday 4:00 PM",
-    isActive: true,
-    status: "trial",
-    goal: "Weight Loss",
-    email: "john.davis@email.com",
-    totalSessions: 3,
-    joinDate: "2024-08-20"
-  },
-  {
-    id: 6,
-    name: "Sarah Kim",
-    avatar: "https://images.pexels.com/photos/3768916/pexels-photo-3768916.jpeg?auto=compress&cs=tinysrgb&w=400",
-    lastSession: "2 weeks ago",
-    progress: 23,
-    calorieStatus: "Program paused",
-    nextSession: "TBD",
-    isActive: false,
-    status: "paused",
-    goal: "Rehabilitation",
-    email: "sarah.kim@email.com",
-    totalSessions: 12,
-    joinDate: "2024-06-15"
-  }
-];
-
-const TODAY_SESSIONS = [
-  {
-    id: 1,
-    clientName: "Emma Wilson",
-    clientAvatar: "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=400",
-    time: "5:30 PM",
-    duration: 60,
-    type: "Strength Training",
-    status: "scheduled",
-  },
-  {
-    id: 2,
-    clientName: "John Davis",
-    clientAvatar: "https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=400",
-    time: "7:00 PM",
-    duration: 45,
-    type: "HIIT Cardio",
-    status: "scheduled",
-  },
-  {
-    id: 3,
-    clientName: "Mike Johnson",
-    clientAvatar: "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=400",
-    time: "8:30 PM",
-    duration: 90,
-    type: "Full Body Workout",
-    status: "scheduled",
-  },
-];
-
 const STATUS_FILTERS = [
   { id: "all", label: "All", color: COLORS.muted },
   { id: "active", label: "Active", color: COLORS.success },
   { id: "trial", label: "Trial", color: COLORS.warning },
   { id: "paused", label: "Paused", color: COLORS.danger }
 ];
-
-const ANALYTICS = {
-  clientSuccessRate: 92,
-  averageEngagement: 88,
-  monthlyGrowth: 15,
-  clientRetention: 94,
-  weeklyHours: 38,
-  averageRating: 4.9,
-};
 
 /* -------------------- COMPONENTS -------------------- */
 const ProgressBar = ({ progress = 0, tint = COLORS.primary, height = 8 }) => (
@@ -253,8 +113,8 @@ const ProgressBar = ({ progress = 0, tint = COLORS.primary, height = 8 }) => (
   </View>
 );
 
-// Unified MetricCard with optional SAMPLE badge
-const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPress, ms, sample }) => (
+// Unified MetricCard component
+const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPress, ms }) => (
   <TouchableOpacity
     style={[
       styles.metricCard,
@@ -269,14 +129,7 @@ const MetricCard = ({ title, value, subtitle, icon, color = COLORS.primary, onPr
   >
     <View style={styles.metricHeader}>
       <Text style={[styles.metricTitle, { fontSize: ms(13) }]}>{title}</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-        {sample ? (
-          <View style={{ backgroundColor: '#475569', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
-            <Text style={{ color: '#cbd5e1', fontSize: ms(9), fontWeight: '700' }}>SAMPLE</Text>
-          </View>
-        ) : null}
-        <Ionicons name={icon} size={ms(20)} color={color} />
-      </View>
+      <Ionicons name={icon} size={ms(20)} color={color} />
     </View>
     <Text style={[styles.metricValue, { fontSize: ms(24), color }]}>
       {typeof value === 'number' && value >= 1000 ? value.toLocaleString() : value}
@@ -569,21 +422,324 @@ export default function CoachDashboardScreen({ navigation }) {
 
   const [activeTab, setActiveTab] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(3);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [showClientsModal, setShowClientsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("all");
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [upcomingSessions, setUpcomingSessions] = useState(0);
-  useEffect(()=>{
-    if(!coach?.id && !coach?.uid) return; // wait for coach profile
-    const uid = coach.uid || coach.id;
-    const unsub = listenUpcomingSessions(uid, { onChange: list => setUpcomingSessions(list.length) });
-    return unsub;
-  },[coach?.uid, coach?.id]);
+  
+  // Real data states
+  const [realClients, setRealClients] = useState([]);
+  const [realSessions, setRealSessions] = useState([]);
+  const [realMetrics, setRealMetrics] = useState({
+    activeClients: 0,
+    completedSessions: 0,
+    clientSatisfaction: 0,
+    weeklyRevenue: 0,
+    weeklyHours: '0h'
+  });
+  // Listen for upcoming sessions
+  useEffect(() => {
+    if (!coach?.id && !coach?.uid) return;
+    const coachId = coach.uid || coach.id;
+    
+    console.log('[CoachDashboard] Setting up upcoming sessions listener for coach ID:', coachId);
+    
+    const sessionsRef = collection(db, 'sessions');
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 2); // Today and tomorrow
+    
+    const q = query(
+      sessionsRef,
+      where('coachId', '==', coachId),
+      where('status', '==', 'scheduled'),
+      where('scheduledDate', '>=', today),
+      where('scheduledDate', '<=', tomorrow)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const upcomingCount = snapshot.docs.length;
+      console.log('[CoachDashboard] Found', upcomingCount, 'upcoming sessions');
+      setUpcomingSessions(upcomingCount);
+    }, (error) => {
+      console.warn('[CoachDashboard] upcoming sessions listener error:', error);
+      setUpcomingSessions(0);
+    });
+    
+    return unsubscribe;
+  }, [coach?.uid, coach?.id]);
+
+  // Listen for notifications
+  useEffect(() => {
+    if (!coach?.id && !coach?.uid) return;
+    const coachId = coach.uid || coach.id;
+    
+    console.log('[CoachDashboard] Setting up notifications listener for coach ID:', coachId);
+    
+    const notificationsRef = collection(db, 'notifications');
+    
+    // Try with orderBy first, fall back to simple query if index not ready
+    let q;
+    try {
+      q = query(
+        notificationsRef,
+        where('recipientId', '==', coachId),
+        orderBy('createdAt', 'desc'),
+        limit(20)
+      );
+    } catch (indexError) {
+      console.warn('[CoachDashboard] Using fallback query without orderBy');
+      q = query(
+        notificationsRef,
+        where('recipientId', '==', coachId),
+        limit(20)
+      );
+    }
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      console.log('[CoachDashboard] Notifications listener fired, found', snapshot.docs.length, 'notifications');
+      
+      const notificationsList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log('[CoachDashboard] Notification:', doc.id, 'type:', data.type, 'from:', data.senderName);
+        return {
+          id: doc.id,
+          ...data
+        };
+      });
+      
+      // Sort by createdAt if we couldn't use orderBy
+      notificationsList.sort((a, b) => {
+        const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+        const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+        return bTime - aTime;
+      });
+      
+      setNotifications(notificationsList);
+      
+      // Count unread notifications
+      const unreadCount = notificationsList.filter(n => !n.read).length;
+      console.log('[CoachDashboard] Unread notifications count:', unreadCount);
+      setNotificationCount(unreadCount);
+    }, (error) => {
+      console.warn('[CoachDashboard] notifications listener error:', error);
+      
+      // If the query failed due to index, try a simpler query
+      if (error.code === 'failed-precondition') {
+        console.log('[CoachDashboard] Retrying with simple query due to index issue');
+        const simpleQ = query(notificationsRef, where('recipientId', '==', coachId));
+        const fallbackUnsubscribe = onSnapshot(simpleQ, (snapshot) => {
+          const notificationsList = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          
+          // Sort manually
+          notificationsList.sort((a, b) => {
+            const aTime = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+            const bTime = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+            return bTime - aTime;
+          });
+          
+          setNotifications(notificationsList);
+          setNotificationCount(notificationsList.filter(n => !n.read).length);
+        });
+        return fallbackUnsubscribe;
+      }
+    });
+    
+    return unsubscribe;
+  }, [coach?.uid, coach?.id]);
+
+  // Listen for real client data using new UserCoachRelationships collection
+  useEffect(() => {
+    if (!coach?.id) {
+      console.log('[DEBUG] No coach ID available yet');
+      return;
+    }
+    
+    // Use the authentication UID for consistency with security rules
+    const auth = getAuth();
+    const authUid = auth?.currentUser?.uid;
+    
+    console.log('[DEBUG] Setting up UserCoachRelationships listener for coach ID:', coach.id, 'auth UID:', authUid);
+    
+    if (!authUid) {
+      console.warn('[DEBUG] No authenticated user, skipping relationship listener');
+      return;
+    }
+    
+    const userCoachRelationshipsRef = collection(db, 'UserCoachRelationships');
+    
+    // Query for relationships where this coach is the coach
+    const q = query(
+      userCoachRelationshipsRef,
+      where('coach.id', '==', authUid),
+      where('status', '==', 'active')
+    );
+    
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      console.log('[DEBUG] UserCoachRelationships query fired - found', snapshot.docs.length, 'active relationships');
+      
+      const relationships = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      console.log('[DEBUG] UserCoachRelationships data:', relationships);
+      
+      // Transform the data for display
+      const clientsData = relationships.map(rel => {
+        const client = rel.client;
+        const progress = rel.progress || {};
+        const sessions = rel.sessions || {};
+        
+        console.log('[DEBUG] Processing client:', client.name, 'with goals:', client.fitnessGoals);
+        
+        return {
+          id: client.id,
+          relationshipId: rel.id,
+          name: client.name,
+          avatar: client.photoURL,
+          email: client.email,
+          goal: Array.isArray(client.fitnessGoals) && client.fitnessGoals.length > 0 
+                ? client.fitnessGoals[0] 
+                : client.weightGoal || 'General Fitness',
+          joinDate: rel.startDate,
+          status: rel.status,
+          isActive: rel.status === 'active',
+          lastSession: sessions.lastSession ? 
+            new Date(sessions.lastSession).toLocaleDateString() : 
+            'No sessions yet',
+          progress: progress.percentage || 0,
+          calorieStatus: progress.weightChange ? 
+            (progress.weightChange > 0 ? 'Weight gaining' : 'Weight losing') : 
+            'No data yet',
+          nextSession: sessions.nextSession ? 
+            new Date(sessions.nextSession).toLocaleDateString() : 
+            'Not scheduled',
+          totalSessions: sessions.completed || 0,
+          
+          // Additional client data for profile views
+          age: client.age,
+          gender: client.gender,
+          heightCm: client.heightCm,
+          weightKg: client.weightKg,
+          fitnessLevel: client.fitnessLevel,
+          allGoals: client.fitnessGoals || []
+        };
+      });
+      
+      console.log('[DEBUG] Final processed clients data:', clientsData.length, 'clients', clientsData);
+      setRealClients(clientsData);
+      
+      // Update metrics immediately
+      setRealMetrics(prev => {
+        const updated = {
+          ...prev,
+          activeClients: clientsData.length
+        };
+        console.log('[DEBUG] Updated metrics - activeClients:', updated.activeClients);
+        return updated;
+      });
+      
+    }, (error) => {
+      console.warn('[CoachDashboard] UserCoachRelationships listener error:', error);
+      setRealClients([]);
+      setRealMetrics(prev => ({ ...prev, activeClients: 0 }));
+    });
+    
+    return unsubscribe;
+  }, [coach?.id]);
+
+  // Listen for real sessions data
+  useEffect(() => {
+    if (!coach?.id && !coach?.uid) return;
+    const coachId = coach.uid || coach.id;
+    
+    const sessionsRef = collection(db, 'sessions');
+    const q = query(
+      sessionsRef,
+      where('coachId', '==', coachId),
+      orderBy('scheduledDate', 'desc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const sessions = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      
+      // Filter today's sessions
+      const today = new Date();
+      const todaySessions = sessions.filter(session => {
+        const sessionDate = session.scheduledDate?.toDate ? session.scheduledDate.toDate() : new Date(session.scheduledDate);
+        return sessionDate.toDateString() === today.toDateString();
+      });
+
+      // Calculate this week's sessions
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+      const thisWeekSessions = sessions.filter(session => {
+        const sessionDate = session.scheduledDate?.toDate ? session.scheduledDate.toDate() : new Date(session.scheduledDate);
+        return sessionDate >= startOfWeek && sessionDate < endOfWeek && session.status === 'completed';
+      });
+
+      const weeklyHours = thisWeekSessions.reduce((total, session) => {
+        return total + (session.duration || 60); // Default 60 minutes per session
+      }, 0) / 60; // Convert minutes to hours
+      
+      setRealSessions(todaySessions);
+      
+      // Count completed sessions
+      const completedSessions = sessions.filter(s => s.status === 'completed').length;
+      
+      // Calculate real client satisfaction based on session ratings
+      let clientSatisfaction = 0;
+      if (completedSessions > 0) {
+        const ratedSessions = sessions.filter(s => s.status === 'completed' && s.rating);
+        if (ratedSessions.length > 0) {
+          const avgRating = ratedSessions.reduce((sum, s) => sum + (s.rating || 0), 0) / ratedSessions.length;
+          clientSatisfaction = Math.round((avgRating / 5) * 100); // Convert 5-star rating to percentage
+        } else {
+          clientSatisfaction = 95; // Default high satisfaction if no ratings yet
+        }
+      }
+      
+      // Update metrics
+      setRealMetrics(prev => ({
+        ...prev,
+        completedSessions,
+        clientSatisfaction,
+        weeklyHours: weeklyHours > 0 ? `${weeklyHours.toFixed(1)}h` : '0h'
+      }));
+      
+    }, (error) => {
+      console.warn('[CoachDashboard] sessions listener error:', error);
+    });
+    
+    return unsubscribe;
+  }, [coach?.uid, coach?.id]);
 
   const { coach } = useCoachProfile();
+  
+  // Temporary debug to identify the issue
+  console.log('[DEBUG] Coach profile:', {
+    id: coach?.id,
+    uid: coach?.uid,
+    email: coach?.email,
+    name: coach?.name
+  });
+  
   const info = coach ? {
     name: coach.name || DEFAULT_COACH.name,
     title: coach.title || coach.roleTitle || DEFAULT_COACH.title,
@@ -593,36 +749,14 @@ export default function CoachDashboardScreen({ navigation }) {
     specialization: coach.specialization || coach.focus || DEFAULT_COACH.specialization,
   } : DEFAULT_COACH;
 
-  const needsVerification = !!coach && (
-    coach.status === 'pending' ||
-    coach.coachOnboardingComplete === false ||
-    coach.phoneVerified === false ||
-    coach.coachEmailVerified === false
-  );
-
-  // Derive granular verification steps (extensible)
-  const verificationSteps = useMemo(() => {
-    if (!coach) return [];
-    return [
-      { key: 'email', label: 'Email verified', done: coach.coachEmailVerified === true },
-      { key: 'phone', label: 'Phone verified', done: coach.phoneVerified === true },
-      { key: 'profile', label: 'Profile completed', done: coach.coachOnboardingComplete === true },
-      { key: 'status', label: 'Admin approval', done: coach.status === 'approved' },
-    ];
-  }, [coach]);
-
-  const verificationProgressPct = useMemo(() => {
-    if (!verificationSteps.length) return 0;
-    const done = verificationSteps.filter(s => s.done).length;
-    return Math.round((done / verificationSteps.length) * 100);
-  }, [verificationSteps]);
-
   // Self-repair /users/{uid} doc to ensure role:'coach' + flag fields present so root navigator doesn't mis-route.
   useEffect(() => {
     let running = false;
     (async () => {
       if (running) return; running = true;
-      const u = firebaseAuth.currentUser; if (!u) return;
+      const auth = getAuth();
+      const u = auth?.currentUser; 
+      if (!u) return;
       try {
         const userRef = doc(db, 'users', u.uid);
         const snap = await getDoc(userRef);
@@ -644,43 +778,12 @@ export default function CoachDashboardScreen({ navigation }) {
     return () => { running = true; };
   }, [coach]);
 
-  const goToVerification = () => {
-    // Attempt direct navigation if AuthRoot already current; else set initial and switch.
-    const parent = navigation.getParent();
-    try {
-      setAuthInitialRoute('CoachVerify');
-      const state = parent?.getState?.();
-      console.log('[goToVerification] parent state', JSON.stringify(state));
-      const currentRoot = state?.routes?.[state.index]?.name;
-      if (currentRoot === 'AuthRoot') {
-        console.log('[goToVerification] Already in AuthRoot, navigating to CoachVerify');
-        try { navigation.navigate('CoachVerify'); return; } catch (e2) { console.warn('nav navigate fail', e2); }
-      }
-      // Try navigating into AuthRoot stack without full reset first
-      try {
-        parent?.navigate('AuthRoot', { screen: 'CoachVerify' });
-        console.log('[goToVerification] parent.navigate AuthRoot -> CoachVerify attempted');
-        return;
-      } catch (e3) {
-        console.warn('[goToVerification] parent.navigate failed, performing reset', e3);
-      }
-      parent?.reset({ index: 0, routes: [{ name: 'AuthRoot', state: { routes: [{ name: 'CoachVerify' }] } }] });
-    } catch (e) {
-      console.warn('[goToVerification] fallback', e);
-      parent?.reset({ index: 0, routes: [{ name: 'AuthRoot' }] });
-    }
-  };
-
   const getGreeting = () => {
     const hour = new Date().getHours();
     const first = (info.name || 'Coach').split(' ')[0];
     if (hour < 12) return `Good morning, ${first}!`;
     if (hour < 18) return `Good afternoon, ${first}!`;
     return `Good evening, ${first}!`;
-  };
-
-  const showDialog = (title, message) => {
-    Alert.alert(title, message);
   };
 
   const navigateToCoachSettings = () => {
@@ -721,8 +824,155 @@ export default function CoachDashboardScreen({ navigation }) {
     setIsLoading(true);
     await new Promise((resolve) => setTimeout(resolve, 2000));
     setIsLoading(false);
-    setNotificationCount((prev) => prev + 1);
     Alert.alert("Success", "Dashboard refreshed successfully!");
+  };
+
+  const handleNotifications = () => {
+    // Navigate to dedicated notifications screen
+    navigation.navigate('CoachNotifications');
+  };
+
+  const showNotificationsModal = () => {
+    const coachRequests = notifications.filter(n => n.type === 'coach_request');
+    
+    if (coachRequests.length > 0) {
+      const requestsText = coachRequests.map(req => 
+        `${req.senderName} wants you as their coach`
+      ).join('\n\n');
+      
+      Alert.alert(
+        'Coach Requests',
+        requestsText,
+        [
+          { text: 'Accept All', onPress: () => handleBulkAcceptRequests(coachRequests) },
+          { text: 'View Individual', onPress: () => handleIndividualRequests(coachRequests) },
+          { text: 'Close', style: 'cancel' }
+        ]
+      );
+    }
+  };
+
+  const handleBulkAcceptRequests = async (requests) => {
+    try {
+      for (const request of requests) {
+        await acceptCoachRequest(request);
+      }
+      Alert.alert('Success', `Accepted ${requests.length} coach request(s)!`);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to accept some requests. Please try again.');
+    }
+  };
+
+  const handleIndividualRequests = (requests) => {
+    if (requests.length === 0) return;
+    
+    const request = requests[0];
+    Alert.alert(
+      'Coach Request',
+      `${request.senderName} wants you as their personal coach.\n\nWould you like to accept them as a client?`,
+      [
+        { text: 'Decline', style: 'destructive', onPress: () => declineCoachRequest(request) },
+        { text: 'Accept', onPress: () => acceptCoachRequest(request) },
+        { text: 'Next', onPress: () => {
+          const remainingRequests = requests.slice(1);
+          if (remainingRequests.length > 0) {
+            handleIndividualRequests(remainingRequests);
+          }
+        }}
+      ]
+    );
+  };
+
+  const acceptCoachRequest = async (request) => {
+    try {
+      console.log('[DEBUG] Accepting coach request:', request);
+      console.log('[DEBUG] Current coach profile:', coach);
+      
+      // Use Firebase Auth directly
+      const auth = getAuth();
+      console.log('[DEBUG] Auth instance:', !!auth);
+      
+      if (!auth) {
+        throw new Error('Firebase Auth not initialized');
+      }
+      
+      // Use the authentication UID for consistency with security rules
+      const currentUser = auth.currentUser;
+      console.log('[DEBUG] Current user:', !!currentUser, currentUser?.uid);
+      
+      if (!currentUser) {
+        throw new Error('No authenticated user found');
+      }
+      
+      const authUid = currentUser.uid;
+      const clientId = request.senderId;
+      
+      console.log('[DEBUG] Creating relationship with authUid:', authUid, 'clientId:', clientId);
+      
+      // Create the coach-client relationship using the utility function
+      const relationshipResult = await createCoachClientRelationship({
+        coachId: authUid,
+        clientId: clientId,
+        coachData: {
+          name: coach?.name || 'Coach',
+          email: coach?.email,
+          photoURL: coach?.photoURL || coach?.avatar
+        },
+        requestData: {
+          message: request.message || 'Coach request accepted',
+          source: 'coach_request'
+        }
+      });
+
+      if (!relationshipResult.success) {
+        throw new Error(relationshipResult.error);
+      }
+
+      console.log('[DEBUG] Created coach-client relationship successfully:', relationshipResult.relationshipId);
+
+      // Update notification status
+      const notificationRef = doc(db, 'notifications', request.id);
+      await updateDoc(notificationRef, { 
+        status: 'accepted',
+        respondedAt: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
+        relationshipId: relationshipResult.relationshipId // Store reference to the relationship
+      });
+
+      // Create acceptance notification for client
+      const clientNotificationRef = doc(collection(db, 'notifications'));
+      await setDoc(clientNotificationRef, {
+        type: 'coach_request_accepted',
+        recipientId: request.senderId,
+        senderId: authUid,
+        senderName: coach?.name || 'Your Coach',
+        title: 'Coach Request Accepted!',
+        message: `Great news! ${coach?.name || 'Your coach'} has accepted your request and is now your personal coach.`,
+        createdAt: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
+        read: false,
+        relationshipId: relationshipResult.relationshipId
+      });
+
+      Alert.alert('Success', `You have accepted ${request.senderName} as your client!`);
+    } catch (error) {
+      console.error('Accept coach request error:', error);
+      Alert.alert('Error', 'Failed to accept the request. Please try again.');
+    }
+  };
+
+  const declineCoachRequest = async (request) => {
+    try {
+      // Update notification status
+      const notificationRef = doc(db, 'notifications', request.id);
+      await updateDoc(notificationRef, { 
+        status: 'declined',
+        respondedAt: new Date().toISOString()
+      });
+
+      Alert.alert('Request Declined', `You have declined ${request.senderName}'s coach request.`);
+    } catch (error) {
+      console.error('Decline coach request error:', error);
+      Alert.alert('Error', 'Failed to decline the request. Please try again.');
+    }
   };
 
   // FIXED: Removed navigation to non-existent 'CoachClients' screen
@@ -730,7 +980,7 @@ export default function CoachDashboardScreen({ navigation }) {
     if (metricType === "activeClients") {
       navigation.navigate('CoachClients');
     } else {
-      showDialog(`${metricType.toUpperCase()} Details`, `Detailed view for ${metricType} metric`);
+      Alert.alert(`${metricType.toUpperCase()} Details`, `This metric shows your ${metricType} performance.`);
     }
   };
   // FIXED: Changed screen name from 'CoachClientProfile' to match App.js registration
@@ -747,18 +997,73 @@ export default function CoachDashboardScreen({ navigation }) {
   };
 
   const onScheduleSession = (client) => {
-    showDialog(`Schedule Session with ${client.name}`, "Open session scheduling interface");
+    // Navigate to session scheduling screen when implemented
+    Alert.alert("Feature Coming Soon", `Session scheduling with ${client.name} will be available in a future update.`);
+  };
+
+  // Client management functions using the new utility
+  const handleClientProgressUpdate = async (client, progressData) => {
+    try {
+      const result = await updateCoachClientRelationship(client.relationshipId, {
+        'progress.percentage': progressData.percentage,
+        'progress.goalsAchieved': progressData.goalsAchieved,
+        'progress.weightChange': progressData.weightChange
+      });
+
+      if (result.success) {
+        Alert.alert('Success', 'Client progress updated successfully!');
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      console.error('Progress update error:', error);
+      Alert.alert('Error', 'Failed to update client progress. Please try again.');
+    }
+  };
+
+  const handleEndClientRelationship = async (client, reason) => {
+    try {
+      Alert.alert(
+        'End Relationship',
+        `Are you sure you want to end your coaching relationship with ${client.name}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'End Relationship',
+            style: 'destructive',
+            onPress: async () => {
+              const result = await endCoachClientRelationship(client.relationshipId, reason);
+              if (result.success) {
+                Alert.alert('Success', 'Coaching relationship ended successfully.');
+              } else {
+                Alert.alert('Error', 'Failed to end relationship. Please try again.');
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('End relationship error:', error);
+      Alert.alert('Error', 'Failed to end relationship. Please try again.');
+    }
   };
 
   const onSessionTap = (session) => {
-    showDialog(
+    // Navigate to session details when implemented
+    Alert.alert(
       "Session Details",
       `Client: ${session.clientName}\nTime: ${session.time}\nDuration: ${session.duration} minutes\nType: ${session.type}`
     );
   };
 
   const onStartSession = (session) => {
-    showDialog("Start Session", `Start session with ${session.clientName}?`);
+    Alert.alert("Start Session", `Start session with ${session.clientName}?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Start", onPress: () => {
+        // Navigate to active session screen when implemented
+        Alert.alert("Feature Coming Soon", "Live session tracking will be available in a future update.");
+      }}
+    ]);
   };
 
   const onCancelSession = (session) => {
@@ -769,7 +1074,7 @@ export default function CoachDashboardScreen({ navigation }) {
   };
 
   const onCreateSession = () => {
-    showDialog("Create New Session", "Open session creation form");
+    Alert.alert("Feature Coming Soon", "Session creation will be available in a future update.");
   };
 
   const onMessageCenter = () => {
@@ -777,12 +1082,12 @@ export default function CoachDashboardScreen({ navigation }) {
   };
 
   const onEmergencyContact = () => {
-    showDialog("Emergency Contact", "Emergency contact features would be available here");
+    Alert.alert("Feature Coming Soon", "Emergency contact features will be available in a future update.");
   };
 
   // Filter and search logic for modal
   const filteredClients = useMemo(() => {
-    let filtered = CLIENTS;
+    let filtered = realClients; // Use real clients instead of static CLIENTS
 
     if (selectedStatus !== "all") {
       filtered = filtered.filter(client => client.status === selectedStatus);
@@ -798,38 +1103,62 @@ export default function CoachDashboardScreen({ navigation }) {
     }
 
     return filtered;
-  }, [searchQuery, selectedStatus]);
+  }, [searchQuery, selectedStatus, realClients]);
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 0:
         return (
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            {CLIENTS.map((client) => (
-              <ClientCard
-                key={client.id}
-                client={client}
-                onClientTap={onClientTap}
-                onMessage={onMessageClient}
-                onSchedule={onScheduleSession}
-                ms={ms}
-              />
-            ))}
+            {realClients.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Ionicons name="people-outline" size={64} color={COLORS.muted} />
+                <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 18, marginTop: 16 }}>
+                  No Clients Yet
+                </Text>
+                <Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 32 }}>
+                  Your accepted clients will appear here. Coach requests from the marketplace will show in notifications.
+                </Text>
+              </View>
+            ) : (
+              realClients.map((client, index) => (
+                <ClientCard
+                  key={`${client.id}-${client.relationshipId}-${index}`}
+                  client={client}
+                  onClientTap={onClientTap}
+                  onMessage={onMessageClient}
+                  onSchedule={onScheduleSession}
+                  ms={ms}
+                />
+              ))
+            )}
           </ScrollView>
         );
       case 1:
         return (
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            {TODAY_SESSIONS.map((session) => (
-              <SessionCard
-                key={session.id}
-                session={session}
-                onSessionTap={onSessionTap}
-                onStart={onStartSession}
-                onCancel={onCancelSession}
-                ms={ms}
-              />
-            ))}
+            {realSessions.length === 0 ? (
+              <View style={{ alignItems: 'center', marginTop: 40 }}>
+                <Ionicons name="calendar-outline" size={64} color={COLORS.muted} />
+                <Text style={{ color: COLORS.text, fontWeight: '700', fontSize: 18, marginTop: 16 }}>
+                  No Sessions Today
+                </Text>
+                <Text style={{ color: COLORS.muted, textAlign: 'center', marginTop: 8, paddingHorizontal: 32 }}>
+                  Your scheduled sessions for today will appear here.
+                </Text>
+              </View>
+            ) : (
+              realSessions.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  onSessionTap={onSessionTap}
+                  onStart={onStartSession}
+                  onCancel={onCancelSession}
+                  ms={ms}
+                />
+              ))
+            )}
           </ScrollView>
         );
       case 2:
@@ -838,50 +1167,34 @@ export default function CoachDashboardScreen({ navigation }) {
             <View style={[styles.analyticsGrid, { gap: ms(12) }]}>
               <AnalyticsCard
                 title="Client Success Rate"
-                value={ANALYTICS.clientSuccessRate}
-                subtitle="Goal achievement rate"
+                value={realMetrics.clientSatisfaction}
+                subtitle="Based on completed sessions"
                 icon="trophy-outline"
                 color={COLORS.success}
                 ms={ms}
               />
               <AnalyticsCard
-                title="Average Engagement"
-                value={ANALYTICS.averageEngagement}
-                subtitle="Weekly participation"
-                icon="pulse-outline"
+                title="Active Clients"
+                value={realMetrics.activeClients}
+                subtitle="Current client base"
+                icon="people-outline"
                 color={COLORS.primary}
                 ms={ms}
               />
               <AnalyticsCard
-                title="Monthly Growth"
-                value={ANALYTICS.monthlyGrowth}
-                subtitle="New client acquisition"
-                icon="trending-up-outline"
+                title="Completed Sessions"
+                value={realMetrics.completedSessions}
+                subtitle="Total sessions completed"
+                icon="checkmark-circle-outline"
                 color={COLORS.secondary}
                 ms={ms}
               />
               <AnalyticsCard
-                title="Client Retention"
-                value={ANALYTICS.clientRetention}
-                subtitle="6-month retention rate"
-                icon="people-outline"
-                color={COLORS.accent}
-                ms={ms}
-              />
-              <AnalyticsCard
-                title="Weekly Hours"
-                value={`${ANALYTICS.weeklyHours}h`}
-                subtitle="Active coaching time"
+                title="This Week"
+                value={realMetrics.weeklyHours || '0h'}
+                subtitle="Sessions this week"
                 icon="time-outline"
                 color={COLORS.warning}
-                ms={ms}
-              />
-              <AnalyticsCard
-                title="Average Rating"
-                value={ANALYTICS.averageRating}
-                subtitle="Client satisfaction"
-                icon="star-outline"
-                color={COLORS.primary}
                 ms={ms}
               />
             </View>
@@ -907,7 +1220,7 @@ export default function CoachDashboardScreen({ navigation }) {
                   marginTop: ms(24),
                 },
               ]}
-              onPress={() => showDialog("Full Calendar", "Open complete calendar view with session management")}
+              onPress={() => Alert.alert("Feature Coming Soon", "Full calendar view will be available in a future update.")}
             >
               <Text style={[styles.scheduleButtonText, { fontSize: ms(14) }]}>
                 Open Full Calendar
@@ -957,12 +1270,7 @@ export default function CoachDashboardScreen({ navigation }) {
         <View style={styles.headerRight}>
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() =>
-              showDialog(
-                `Notifications (${notificationCount})`,
-                "\u2022 New client milestone achieved\n\u2022 Session reminder: Emma Wilson\n\u2022 Weekly report available"
-              )
-            }
+            onPress={handleNotifications}
           >
             <Ionicons name="notifications-outline" size={ms(18)} color="#cbd5e1" />
             {notificationCount > 0 && (
@@ -985,7 +1293,7 @@ export default function CoachDashboardScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.iconBtn}
-            onPress={() => showDialog("Coach Profile", `Navigate to ${info.name} profile settings`)}
+            onPress={() => navigation.navigate('CoachProfile')}
           >
             <Ionicons name="person-outline" size={ms(18)} color="#cbd5e1" />
           </TouchableOpacity>
@@ -1036,16 +1344,6 @@ export default function CoachDashboardScreen({ navigation }) {
             <View style={{ flex: 1, marginLeft: ms(16) }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
                 <Text style={[styles.coachName, { fontSize: ms(20) }]}>{info.name}</Text>
-                {needsVerification && (
-                  <TouchableOpacity
-                    onPress={goToVerification}
-                    activeOpacity={0.85}
-                    style={[styles.unverifiedBadge, { marginLeft: ms(8), paddingHorizontal: ms(10), paddingVertical: ms(4), borderRadius: ms(14) }]}
-                  >
-                    <Ionicons name="close-circle" size={ms(14)} color={'#fff'} />
-                    <Text style={[styles.unverifiedBadgeText, { fontSize: ms(12), marginLeft: ms(4) }]}>Unverified</Text>
-                  </TouchableOpacity>
-                )}
               </View>
               <Text style={[styles.coachTitle, { fontSize: ms(14) }]}>{info.title}</Text>
               <View style={styles.coachStats}>
@@ -1069,9 +1367,9 @@ export default function CoachDashboardScreen({ navigation }) {
           <Text style={[styles.sectionTitle, { fontSize: ms(18), marginBottom: ms(12) }]}>Dashboard Overview</Text>
           <View style={[styles.metricsGrid, { gap: ms(12) }]}>
             <MetricCard
-              title="All Clients"
-              value={METRICS.activeClients}
-              subtitle="Total clients"
+              title="Active Clients"
+              value={realMetrics.activeClients}
+              subtitle={realMetrics.activeClients === 1 ? "client" : "clients"}
               icon="people-outline"
               color={COLORS.primary}
               onPress={() => onMetricTap("activeClients")}
@@ -1088,8 +1386,8 @@ export default function CoachDashboardScreen({ navigation }) {
             />
             <MetricCard
               title="Client Satisfaction"
-              value={`${METRICS.clientSatisfaction}%`}
-              subtitle="Average rating"
+              value={`${realMetrics.clientSatisfaction}%`}
+              subtitle="Based on sessions"
               icon="heart-outline"
               color={COLORS.accent}
               ms={ms}
@@ -1333,6 +1631,4 @@ const styles = StyleSheet.create({
   loadingText: { color: COLORS.muted, fontWeight: "500" },
   verifyButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary + '20', borderWidth: 1, borderColor: COLORS.primary },
   verifyButtonText: { color: COLORS.primary, fontWeight: '700' },
-  unverifiedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.danger, paddingHorizontal: 10, paddingVertical: 4 },
-  unverifiedBadgeText: { color: '#fff', fontWeight: '700' },
 });

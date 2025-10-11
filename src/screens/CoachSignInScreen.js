@@ -157,7 +157,7 @@ export default function CoachSignInScreen({ navigation }) {
           coachRef,
           {
             email: user.email || null,
-            status: "pending", // until admin approves
+            status: "pending",
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           },
@@ -166,50 +166,111 @@ export default function CoachSignInScreen({ navigation }) {
         console.log("[CoachSignIn] created coaches doc (pending).");
       }
 
-      // 3) Promote /users/{uid} to role:'coach' (so router sees correct role)
-            const userRef = doc(db, "users", uid);
-            await setDoc(
-              userRef,
-              {
-                role: "coach",
-                lastSeen: serverTimestamp(),
-                // DO NOT force wizard flags here; let approval gate decide below.
+      // 3) Check approval BEFORE any updates
+      const { approved } = await checkCoachApproved(user, uid);
+
+      if (!approved) {
+        console.log("[CoachSignIn] Coach not approved - cleaning up");
+
+        // IMPORTANT: Delete any partial coach data that might trigger wrong routing
+        try {
+          const userRef = doc(db, "users", uid);
+          await setDoc(
+            userRef,
+            {
+              role: "user", // Reset to regular user
+              coachOnboardingComplete: false,
+              coachApproved: false,
+              coachEmailVerified: false,
+            },
+            { merge: true }
+          );
+          console.log("[CoachSignIn] Reset user role to 'user'");
+        } catch (e) {
+          console.log("[CoachSignIn] Error resetting user doc:", e);
+        }
+
+        // Clear the auth route state BEFORE signing out
+        setAuthInitialRoute(null);
+
+        // Sign out to trigger auth listener
+        try {
+          await signOut(firebaseAuth);
+          console.log("[CoachSignIn] Signed out successfully");
+        } catch (e) {
+          console.log("[CoachSignIn] Sign out error:", e);
+        }
+
+        // Wait for sign out and Firestore to propagate
+        await new Promise(resolve => setTimeout(resolve, 800));
+
+        // Stop loading
+        setLoading(false);
+
+        // Clear local state
+        setEmail("");
+        setPw("");
+
+        // Show alert - by this time auth listener should have navigated
+        Alert.alert(
+          "Approval Required",
+          "Your coach account is not approved yet. Please wait for an admin to approve it.",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                // Force navigation to SignIn as final safeguard
+                try {
+                  navigation.navigate("SignIn");
+                } catch (err) {
+                  console.log("[CoachSignIn] Navigation error:", err);
+                }
               },
-              { merge: true }
-            );
-      
-            // 4) Decide approval using claims + docs (w/ logs)
-            const { approved } = await checkCoachApproved(user, uid);
-      
-            if (!approved) {
-              // Not approved → show popup and sign out. NO nav to CoachVerify here.
-              Alert.alert(
-                "Approval required",
-                "Your coach account is not approved yet. Please wait for an admin to approve it.",
-                [
-                  {
-                    text: "OK",
-                    onPress: async () => {
-                      try { await signOut(firebaseAuth); } catch {}
-                      navigation.replace("SignIn");
-                    },
-                  },
-                ]
-              );
-              return;
-            }
+            },
+          ]
+        );
+        return; // CRITICAL: Exit here, don't continue
+      }
 
-      // 5) Approved → go straight to CoachRoot (no verification screen)
-            setAuthInitialRoute("CoachDashboard");
-            navigation.getParent()?.reset({ index: 0, routes: [{ name: "CoachRoot" }] });
-          } catch (e) {
-            console.log("[CoachSignIn] error:", e);
-            Alert.alert("Coach Sign In Failed", e?.message || "Please try again.");
-          } finally {
-            setLoading(false);
-          }
-        };
+      // 4) ONLY update flags if approved
+      const userRef = doc(db, "users", uid);
+      await setDoc(
+        userRef,
+        {
+          role: "coach",
+          coachOnboardingComplete: true,
+          onboardingComplete: true,
+          phoneVerified: true,
+          coachEmailVerified: true,
+          coachApproved: true,
+          lastSeen: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
+      console.log("[CoachSignIn] Coach approved, all verification flags set to true");
+
+      // Wait for Firestore to propagate
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Force token refresh
+      try {
+        await user.getIdToken(true);
+        console.log("[CoachSignIn] Token refreshed");
+      } catch (e) {
+        console.log("[CoachSignIn] Token refresh error:", e);
+      }
+
+      // Let auth listener handle navigation based on user role
+      console.log("[CoachSignIn] Waiting for auth listener to navigate...");
+
+    } catch (e) {
+      console.log("[CoachSignIn] error:", e);
+      Alert.alert("Coach Sign In Failed", e?.message || "Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
   const Content = (
     <ScrollView
       contentContainerStyle={styles.scrollContent}
@@ -250,7 +311,10 @@ export default function CoachSignInScreen({ navigation }) {
                 placeholder="coach@email.com"
                 placeholderTextColor="#8e8e93"
                 style={styles.textInput}
-                autoComplete="email"
+                autoCorrect={false}
+                autoComplete="off"
+                textContentType="none"
+                importantForAutofill="no"
                 returnKeyType="next"
               />
             </View>
@@ -275,7 +339,12 @@ export default function CoachSignInScreen({ navigation }) {
                 placeholder="Enter your password"
                 placeholderTextColor="#8e8e93"
                 style={styles.textInput}
-                autoComplete="password"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="off"
+                textContentType="oneTimeCode"
+                importantForAutofill="no"
+                passwordRules=""
                 returnKeyType="go"
                 onSubmitEditing={onCoachSignIn}
               />
@@ -409,3 +478,4 @@ const styles = {
   },
   buttonText: { color: "white", fontSize: 16, fontWeight: "bold" },
 };
+

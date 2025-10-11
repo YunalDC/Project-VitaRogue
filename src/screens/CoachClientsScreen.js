@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     View,
     Text,
@@ -15,6 +15,10 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useCoachProfile } from "../hooks/useCoachProfile";
+import { db } from '../lib/firebaseApp';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 const COLORS = {
     bg: "#0B1220",
@@ -31,113 +35,6 @@ const COLORS = {
     danger: "#ef4444",
 };
 
-const ALL_CLIENTS = [
-    {
-        id: 1,
-        name: "Mike Johnson",
-        avatar: "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "2 hours ago",
-        progress: 85,
-        status: "active",
-        goal: "Weight Loss",
-        email: "mike.johnson@email.com",
-        totalSessions: 45,
-        joinDate: "2024-01-15",
-        nextSession: "Tomorrow 3:00 PM",
-    },
-    {
-        id: 2,
-        name: "Emma Wilson",
-        avatar: "https://images.pexels.com/photos/415829/pexels-photo-415829.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "Yesterday",
-        progress: 72,
-        status: "active",
-        goal: "Muscle Gain",
-        email: "emma.wilson@email.com",
-        totalSessions: 32,
-        joinDate: "2024-02-20",
-        nextSession: "Today 5:30 PM",
-    },
-    {
-        id: 3,
-        name: "David Chen",
-        avatar: "https://images.pexels.com/photos/614810/pexels-photo-614810.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "3 days ago",
-        progress: 91,
-        status: "paused",
-        goal: "Strength Training",
-        email: "david.chen@email.com",
-        totalSessions: 67,
-        joinDate: "2023-11-10",
-        nextSession: "TBD",
-    },
-    {
-        id: 4,
-        name: "Lisa Martinez",
-        avatar: "https://images.pexels.com/photos/3763188/pexels-photo-3763188.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "1 hour ago",
-        progress: 68,
-        status: "active",
-        goal: "General Fitness",
-        email: "lisa.martinez@email.com",
-        totalSessions: 28,
-        joinDate: "2024-03-05",
-        nextSession: "Tomorrow 10:00 AM",
-    },
-    {
-        id: 5,
-        name: "John Davis",
-        avatar: "https://images.pexels.com/photos/1040880/pexels-photo-1040880.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "1 week ago",
-        progress: 42,
-        status: "trial",
-        goal: "Weight Loss",
-        email: "john.davis@email.com",
-        totalSessions: 3,
-        joinDate: "2024-08-20",
-        nextSession: "Monday 4:00 PM",
-    },
-    {
-        id: 6,
-        name: "Sarah Kim",
-        avatar: "https://images.pexels.com/photos/3768916/pexels-photo-3768916.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "2 weeks ago",
-        progress: 23,
-        status: "paused",
-        goal: "Rehabilitation",
-        email: "sarah.kim@email.com",
-        totalSessions: 12,
-        joinDate: "2024-06-15",
-        nextSession: "TBD",
-    },
-    {
-        id: 7,
-        name: "Robert Taylor",
-        avatar: "https://images.pexels.com/photos/91227/pexels-photo-91227.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "Today",
-        progress: 55,
-        status: "active",
-        goal: "Endurance",
-        email: "robert.taylor@email.com",
-        totalSessions: 22,
-        joinDate: "2024-05-10",
-        nextSession: "Thursday 6:00 PM",
-    },
-    {
-        id: 8,
-        name: "Jessica Brown",
-        avatar: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=400",
-        lastSession: "4 days ago",
-        progress: 78,
-        status: "trial",
-        goal: "Weight Loss",
-        email: "jessica.brown@email.com",
-        totalSessions: 5,
-        joinDate: "2024-08-25",
-        nextSession: "Saturday 9:00 AM",
-    },
-];
-
 const STATUS_FILTERS = [
     { id: "all", label: "All", color: COLORS.muted },
     { id: "active", label: "Active", color: COLORS.success },
@@ -149,11 +46,84 @@ export default function CoachClientsScreen({ navigation }) {
     const insets = useSafeAreaInsets();
     const [searchQuery, setSearchQuery] = useState("");
     const [selectedStatus, setSelectedStatus] = useState("all");
+    const [clients, setClients] = useState([]);
+    const [loading, setLoading] = useState(true);
     const screenWidth = Dimensions.get("window").width;
-    const chipWidth = screenWidth / STATUS_FILTERS.length - 24;
+    const coach = useCoachProfile();
+
+    // Set up real-time listener for UserCoachRelationships
+    useEffect(() => {
+        if (!coach?.id) {
+            console.log('[CoachClientsScreen] No coach ID available yet, waiting...');
+            console.log('[CoachClientsScreen] Coach object:', coach);
+            setLoading(false);
+            return;
+        }
+
+        // Use the authentication UID for consistency with security rules (same as dashboard)
+        const auth = getAuth();
+        const authUid = auth.currentUser?.uid;
+        console.log('[CoachClientsScreen] Setting up UserCoachRelationships listener for coach ID:', coach.id, 'auth UID:', authUid);
+        
+        const relationshipsRef = collection(db, 'UserCoachRelationships');
+        const q = query(relationshipsRef, where('coach.id', '==', authUid));
+        
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            console.log('[CoachClientsScreen] UserCoachRelationships query result, docs found:', snapshot.docs.length);
+            
+            if (snapshot.docs.length === 0) {
+                console.log('[CoachClientsScreen] No relationships found for auth UID:', authUid);
+                setClients([]);
+                setLoading(false);
+                return;
+            }
+            
+            const clientsData = snapshot.docs.map(doc => {
+                const data = doc.data();
+                const client = data.client;
+                const sessions = data.sessions || {};
+                const progress = data.progress || {};
+                
+                console.log('[CoachClientsScreen] Processing client:', client?.name, 'Status:', data.status);
+                
+                return {
+                    id: client.id,
+                    relationshipId: doc.id,
+                    name: client.name,
+                    avatar: client.photoURL,
+                    email: client.email,
+                    goal: Array.isArray(client.fitnessGoals) && client.fitnessGoals.length > 0 
+                          ? client.fitnessGoals[0] 
+                          : client.weightGoal || 'General Fitness',
+                    joinDate: data.startDate,
+                    status: data.status,
+                    lastSession: sessions.lastSession || 'Recently',
+                    progress: progress.percentage || 75,
+                    totalSessions: sessions.completed || 0,
+                    nextSession: sessions.nextSession || 'TBD',
+                    age: client.age,
+                    gender: client.gender,
+                    heightCm: client.heightCm,
+                    weightKg: client.weightKg,
+                    fitnessLevel: client.fitnessLevel,
+                    allGoals: client.fitnessGoals || []
+                };
+            });
+            
+            console.log('[CoachClientsScreen] Final clients data:', clientsData.length, 'clients');
+            console.log('[CoachClientsScreen] Client names:', clientsData.map(c => c.name));
+            setClients(clientsData);
+            setLoading(false);
+        }, (error) => {
+            console.warn('[CoachClientsScreen] UserCoachRelationships listener error:', error);
+            setLoading(false);
+        });
+        return unsubscribe;
+    }, [coach?.id, getAuth().currentUser?.uid]);
+
 
     const filteredClients = useMemo(() => {
-        let filtered = ALL_CLIENTS;
+        let filtered = clients;
 
         // Filter by status
         if (selectedStatus !== "all") {
@@ -172,7 +142,7 @@ export default function CoachClientsScreen({ navigation }) {
         }
 
         return filtered;
-    }, [searchQuery, selectedStatus]);
+    }, [searchQuery, selectedStatus, clients]);
 
     const getStatusColor = (status) => {
         switch (status) {
@@ -184,6 +154,32 @@ export default function CoachClientsScreen({ navigation }) {
                 return COLORS.danger;
             default:
                 return COLORS.muted;
+        }
+    };
+
+    const removeAllClients = async () => {
+        try {
+            console.log('[CLEANUP] Starting cleanup of all relationships...');
+            
+            const relationshipsRef = collection(db, 'coachClientRelationships');
+            const snapshot = await getDocs(relationshipsRef);
+            
+            console.log(`[CLEANUP] Found ${snapshot.docs.length} relationships to delete`);
+            
+            // Delete each relationship
+            const deletePromises = snapshot.docs.map(relationshipDoc => {
+                console.log(`[CLEANUP] Deleting relationship: ${relationshipDoc.id}`, relationshipDoc.data());
+                return deleteDoc(doc(db, 'coachClientRelationships', relationshipDoc.id));
+            });
+            
+            await Promise.all(deletePromises);
+            
+            console.log('[CLEANUP] All relationships deleted successfully!');
+            Alert.alert("All Clients Removed", "All client relationships have been removed. Ready for fresh testing!");
+            
+        } catch (error) {
+            console.error('[CLEANUP] Error cleaning up relationships:', error);
+            Alert.alert("Error", "Failed to remove relationships. Please check permissions.");
         }
     };
 
@@ -247,6 +243,32 @@ export default function CoachClientsScreen({ navigation }) {
         </TouchableOpacity>
     );
 
+    const renderStatusFilter = ({ item }) => {
+        const screenWidth = Dimensions.get("window").width;
+        const chipWidth = screenWidth / STATUS_FILTERS.length - 24;
+        
+        return (
+            <TouchableOpacity
+                style={[
+                    styles.filterChip,
+                    { width: chipWidth },
+                    selectedStatus === item.id && styles.filterChipActive,
+                ]}
+                onPress={() => setSelectedStatus(item.id)}
+            >
+                <Text
+                    style={[
+                        styles.filterText,
+                        { color: selectedStatus === item.id ? "white" : item.color },
+                    ]}
+                    numberOfLines={1}
+                >
+                    {item.label}
+                </Text>
+            </TouchableOpacity>
+        );
+    };
+
     return (
         <View style={styles.container}>
             <StatusBar style="light" backgroundColor={COLORS.bg} />
@@ -264,6 +286,23 @@ export default function CoachClientsScreen({ navigation }) {
                 <Text style={styles.headerTitle}>All Clients</Text>
 
                 <View style={styles.headerRight}>
+                    {filteredClients.length > 0 && (
+                        <TouchableOpacity
+                            style={styles.removeAllButton}
+                            onPress={() => {
+                                Alert.alert(
+                                    'Remove All Clients',
+                                    'This will permanently remove all client relationships. Are you sure?',
+                                    [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        { text: 'Remove All', style: 'destructive', onPress: removeAllClients }
+                                    ]
+                                );
+                            }}
+                        >
+                            <Ionicons name="trash-outline" size={16} color={COLORS.danger} />
+                        </TouchableOpacity>
+                    )}
                     <Text style={styles.clientCount}>{filteredClients.length}</Text>
                 </View>
             </View>
@@ -286,42 +325,26 @@ export default function CoachClientsScreen({ navigation }) {
             </View>
 
             {/* Status Filters */}
-            <View style={styles.filtersContainer}>
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.filtersContent}
-                >
-                    {STATUS_FILTERS.map((filter) => (
-                        <TouchableOpacity
-                            key={filter.id}
-                            style={[
-                                styles.filterChip,
-                                selectedStatus === filter.id && styles.filterChipActive,
-                            ]}
-                            onPress={() => setSelectedStatus(filter.id)}
-                            activeOpacity={0.7}
-                        >
-                            <Text
-                                style={[
-                                    styles.filterText,
-                                    { color: selectedStatus === filter.id ? "white" : filter.color },
-                                ]}
-                                numberOfLines={1}
-                            >
-                                {filter.label}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </ScrollView>
-            </View>
+            <FlatList
+                data={STATUS_FILTERS}
+                renderItem={renderStatusFilter}
+                keyExtractor={(item) => item.id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.filtersContainer}
+            />
 
             {/* Client List */}
-            {filteredClients.length > 0 ? (
+            {loading ? (
+                <View style={styles.emptyState}>
+                    <Ionicons name="hourglass-outline" size={64} color={COLORS.muted} />
+                    <Text style={styles.emptyTitle}>Loading clients...</Text>
+                </View>
+            ) : filteredClients.length > 0 ? (
                 <FlatList
                     data={filteredClients}
                     renderItem={renderClientCard}
-                    keyExtractor={(item) => item.id.toString()}
+                    keyExtractor={(item, index) => `${item.id}-${item.relationshipId}-${index}`}
                     contentContainerStyle={styles.listContent}
                     showsVerticalScrollIndicator={false}
                 />
@@ -332,7 +355,9 @@ export default function CoachClientsScreen({ navigation }) {
                     <Text style={styles.emptyDesc}>
                         {searchQuery
                             ? "Try adjusting your search or filters"
-                            : "Start adding clients to see them here"}
+                            : clients.length === 0 
+                                ? "When clients request you as their coach, they'll appear here"
+                                : "No clients match the selected filter"}
                     </Text>
                 </View>
             )}
@@ -366,17 +391,27 @@ const styles = StyleSheet.create({
         marginLeft: 8,
     },
     headerRight: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    removeAllButton: {
+        padding: 8,
+        backgroundColor: COLORS.danger + "20",
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: COLORS.danger,
+    },
+    clientCount: {
+        fontSize: 14,
+        fontWeight: "700",
+        color: COLORS.primary,
         backgroundColor: COLORS.primary + "20",
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 12,
         borderWidth: 1,
         borderColor: COLORS.primary,
-    },
-    clientCount: {
-        fontSize: 14,
-        fontWeight: "700",
-        color: COLORS.primary,
     },
     searchContainer: {
         flexDirection: "row",

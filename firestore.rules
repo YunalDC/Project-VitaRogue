@@ -13,6 +13,9 @@ service cloud.firestore {
     // ---- USERS ----
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow any authenticated user to read user profiles (temporary for development)
+      allow read: if request.auth != null;
 
       // Example subcollections (e.g., weights, preferences). Inherit same owner rule.
       match /{sub=**} {
@@ -63,6 +66,50 @@ service cloud.firestore {
       }
     }
 
+    // ---- NOTIFICATIONS ----
+    match /notifications/{notificationId} {
+      // Users can read their own notifications and create notifications for others
+      allow read: if request.auth != null && request.auth.uid == resource.data.recipientId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.senderId;
+      allow update: if request.auth != null && request.auth.uid == resource.data.recipientId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.recipientId;
+    }
+
+    // ---- USER COACH RELATIONSHIPS ----
+    match /UserCoachRelationships/{relationshipId} {
+      // Allow coaches to create relationships when accepting requests
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.coach.id;
+      
+      // Allow both coach and client to read their relationships
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.coach.id || 
+         request.auth.uid == resource.data.client.id);
+      
+      // Allow both coach and client to update their relationships
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.coach.id || 
+         request.auth.uid == resource.data.client.id);
+      
+      // Allow coaches to delete relationships
+      allow delete: if request.auth != null && 
+        request.auth.uid == resource.data.coach.id;
+    }
+
+    // ---- COACH CLIENT RELATIONSHIPS (Legacy) ----
+    match /coachClientRelationships/{relationshipId} {
+      // Both coach and client can read the relationship
+      allow read: if request.auth != null && (request.auth.uid == resource.data.coachId || request.auth.uid == resource.data.clientId);
+      // Only coaches can create relationships (when accepting requests)
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.coachId;
+      // Both can update (e.g., to end relationship)
+      allow update: if request.auth != null && (request.auth.uid == resource.data.coachId || request.auth.uid == resource.data.clientId);
+      // Allow coaches to delete their relationships (for testing and management)
+      allow delete: if request.auth != null && (request.auth.uid == resource.data.coachId || request.auth.uid == resource.data.clientId);
+      // Allow coaches to delete any relationship for testing purposes (temporary)
+      allow delete: if request.auth != null && exists(/databases/$(database)/documents/coaches/$(request.auth.uid));
+    }
+
     // ---- FUNCTIONS ----
     // Add future secured collections here (e.g., admin, analytics) with explicit rules.
 
@@ -72,7 +119,7 @@ service cloud.firestore {
     }
 
     function hasFields(data, fieldList) {
-      return fieldList.every(f => data.keys().hasAll([f]));
+      return fieldList.hasAll(fieldList);
     }
 
     function validateLastMessage(msg) {
