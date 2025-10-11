@@ -15,7 +15,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons, FontAwesome } from "@expo/vector-icons";
-import { collection, onSnapshot, query, where, doc, getDoc, setDoc, serverTimestamp, addDoc, updateDoc, increment } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, getDoc, setDoc, serverTimestamp, addDoc, updateDoc, increment, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebaseApp';
 import { getAuth } from 'firebase/auth';
 import { getOrCreateOneToOneChat } from '../lib/chatUtils';
@@ -64,6 +64,106 @@ export default function CoachMarketplaceScreen({ navigation }) {
   const [reviewStars, setReviewStars] = useState({});
   const [sort, setSort] = useState("Top rated");
   const [creatingChatCoachId, setCreatingChatCoachId] = useState(null);
+  const [pendingRequestsByCoach, setPendingRequestsByCoach] = useState({});
+  const [relationshipsByCoach, setRelationshipsByCoach] = useState({});
+  const [requestingCoachId, setRequestingCoachId] = useState(null);
+
+
+  const getMillisFromTimestamp = useCallback((value) => {
+    if (!value) return 0;
+    if (typeof value?.toMillis === "function") return value.toMillis();
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  }, []);
+
+  // Track coach requests sent by the current user to avoid duplicates and update UI state
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      setPendingRequestsByCoach({});
+      return;
+    }
+
+    const requestsRef = collection(db, 'notifications');
+    const q = query(requestsRef, where('senderId', '==', currentUser.uid));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const latestByCoach = {};
+
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.type !== 'coach_request') return;
+
+        const coachId = data.recipientId;
+        if (!coachId) return;
+
+        const createdAtMs = getMillisFromTimestamp(data.createdAt);
+        const existing = latestByCoach[coachId];
+        if (!existing || createdAtMs >= existing._ts) {
+          latestByCoach[coachId] = { id: docSnap.id, ...data, _ts: createdAtMs };
+        }
+      });
+
+      const normalized = {};
+      Object.keys(latestByCoach).forEach((coachId) => {
+        const { _ts, ...rest } = latestByCoach[coachId];
+        normalized[coachId] = rest;
+      });
+
+      setPendingRequestsByCoach(normalized);
+    }, (error) => {
+      console.warn('[CoachMarketplace] pending requests listener error', error);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.uid, getMillisFromTimestamp]);
+
+  // Track accepted coach-client relationships for the current user
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      setRelationshipsByCoach({});
+      return;
+    }
+
+    const clientUid = currentUser.uid;
+    const relationshipsRef = collection(db, 'UserCoachRelationships');
+    const q = query(relationshipsRef, where('client.id', '==', clientUid));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const mapping = {};
+      snapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        const coachId = data.coach?.id;
+        if (!coachId) return;
+        mapping[coachId] = { id: docSnap.id, ...data };
+      });
+      setRelationshipsByCoach(mapping);
+    }, (error) => {
+      console.warn('[CoachMarketplace] relationships listener error', error);
+      if (error.code === 'failed-precondition') {
+        getDocs(relationshipsRef)
+          .then((snapshotAll) => {
+            const mapping = {};
+            snapshotAll.docs.forEach((docSnap) => {
+              const data = docSnap.data();
+              if (data.client?.id !== clientUid) return;
+              const coachId = data.coach?.id;
+              if (!coachId) return;
+              mapping[coachId] = { id: docSnap.id, ...data };
+            });
+            setRelationshipsByCoach(mapping);
+          })
+          .catch((fallbackError) => {
+            console.warn('[CoachMarketplace] relationships fallback error', fallbackError);
+          });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentUser?.uid]);
 
   const auth = getAuth();
   const currentUser = auth.currentUser;
@@ -180,46 +280,100 @@ export default function CoachMarketplaceScreen({ navigation }) {
       Alert.alert('Authentication Required', 'Please sign in to request a coach.');
       return;
     }
-    
+
     if (currentUser.uid === coach.id) {
       Alert.alert('Cannot Request Yourself', 'You cannot send a coach request to yourself.');
       return;
     }
 
+    const coachName = coach.name || coach.displayName || 'Coach';
+    const existingRelationship = relationshipsByCoach[coach.id];
+    const relationshipStatus = existingRelationship?.status;
+    const relationshipActive = existingRelationship && relationshipStatus && relationshipStatus !== 'ended';
+
+    if (relationshipActive) {
+      Alert.alert('Already Connected', "You're already working with " + coachName + ".");
+      return;
+    }
+
+    const existingRequest = pendingRequestsByCoach[coach.id];
+    const existingStatus = existingRequest?.status;
+
+    if (existingStatus === 'pending') {
+      Alert.alert('Request Pending', "You already sent a request to " + coachName + ". Please wait for them to respond.");
+      return;
+    }
+
+    if (existingStatus === 'accepted') {
+      Alert.alert('Request Accepted', coachName + " has already accepted your request. Check your notifications or client dashboard to start working together.");
+      return;
+    }
+
+    if (requestingCoachId && requestingCoachId === coach.id) {
+      Alert.alert('Please Wait', 'A coach request is already being processed for this coach.');
+      return;
+    }
+
+    if (requestingCoachId && requestingCoachId !== coach.id) {
+      Alert.alert('Please Wait', 'Finish the current coach request before starting another one.');
+      return;
+    }
+
     console.log('[CoachMarketplace] requestCoach starting for coach:', coach.id, 'from user:', currentUser.uid);
 
-    // Debug: Check if this coach exists in the coaches collection
-    const coachRef = doc(db, 'coaches', coach.id);
-    const coachSnap = await getDoc(coachRef);
-    console.log('[CoachMarketplace] Coach document exists:', coachSnap.exists(), 'coach data keys:', coachSnap.exists() ? Object.keys(coachSnap.data()) : 'none');
+    setRequestingCoachId(coach.id);
 
     try {
-      // Get current user's profile data
+      const coachRef = doc(db, 'coaches', coach.id);
+      const coachSnap = await getDoc(coachRef);
+      console.log('[CoachMarketplace] Coach document exists:', coachSnap.exists(), 'coach data keys:', coachSnap.exists() ? Object.keys(coachSnap.data()) : 'none');
+
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
       const userData = userSnap.exists() ? userSnap.data() : {};
-      
+
       const userName = userData.name || userData.displayName || currentUser.displayName || 'User';
-      
+      const userPhoto = userData.photoURL || currentUser.photoURL || null;
+      const userEmail = userData.email || currentUser.email || null;
+      const fitnessGoals = Array.isArray(userData.fitnessGoals) ? userData.fitnessGoals : [];
+      const fallbackClientProfile = {
+        name: userName,
+        email: userEmail,
+        photoURL: userPhoto,
+      };
+
+      ['age', 'gender', 'heightCm', 'weightKg', 'fitnessLevel', 'weightGoal'].forEach((key) => {
+        if (userData[key] !== undefined && userData[key] !== null) {
+          fallbackClientProfile[key] = userData[key];
+        }
+      });
+
+      fallbackClientProfile.fitnessGoals = fitnessGoals.length > 0
+        ? fitnessGoals
+        : (userData.weightGoal ? [userData.weightGoal] : []);
+
       console.log('[CoachMarketplace] Creating notification for recipient:', coach.id, 'from sender:', currentUser.uid);
-      
-      // Create coach request notification
+
       const notificationRef = doc(collection(db, 'notifications'));
       await setDoc(notificationRef, {
         type: 'coach_request',
         recipientId: coach.id,
         senderId: currentUser.uid,
         senderName: userName,
-        senderPhotoURL: userData.photoURL || currentUser.photoURL || null,
-        coachName: coach.name || coach.displayName || 'Coach',
+        senderPhotoURL: userPhoto,
+        coachName,
         title: 'New Coach Request',
-        message: `${userName} wants you as their personal coach. They're looking for professional guidance to achieve their fitness goals.`,
+        message: userName + " wants you as their personal coach. They're looking for professional guidance to achieve their fitness goals.",
         data: {
           requesterId: currentUser.uid,
           requesterName: userName,
-          requesterPhotoURL: userData.photoURL || currentUser.photoURL || null,
+          requesterEmail: userEmail,
+          requesterPhotoURL: userPhoto,
+          requesterFitnessGoals: fitnessGoals,
+          requesterWeightGoal: userData.weightGoal ?? null,
           coachId: coach.id,
-          coachName: coach.name || coach.displayName || 'Coach',
+          coachName,
+          clientFallback: fallbackClientProfile,
         },
         status: 'pending',
         createdAt: serverTimestamp(),
@@ -228,16 +382,14 @@ export default function CoachMarketplaceScreen({ navigation }) {
 
       console.log('[CoachMarketplace] Notification created successfully with ID:', notificationRef.id);
 
-      Alert.alert(
-        'Request Sent!', 
-        `Your coaching request has been sent to ${coach.name || 'the coach'}. They will be notified and can choose to accept you as a client.`
-      );
-
+      Alert.alert('Request Sent!', "Your coaching request has been sent to " + coachName + ". They will be notified and can choose to accept you as a client.");
     } catch (error) {
       console.error('[CoachMarketplace] requestCoach error:', error);
-      Alert.alert('Request Failed', `Unable to send coach request. Error: ${error.message}`);
+      Alert.alert('Request Failed', "Unable to send coach request. Error: " + error.message);
+    } finally {
+      setRequestingCoachId(null);
     }
-  }, [currentUser]);
+  }, [currentUser, pendingRequestsByCoach, relationshipsByCoach, requestingCoachId]);
 
   const toggleExpand = (id) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -317,7 +469,46 @@ export default function CoachMarketplaceScreen({ navigation }) {
     const reviews = item.reviewsList || [];
     
     const isOwnProfile = currentUser?.uid === item.id;
-    
+
+    const relationship = relationshipsByCoach[item.id];
+    const relationshipStatus = relationship?.status;
+    const relationshipActive = relationship && relationshipStatus && relationshipStatus !== 'ended';
+
+    const existingRequest = pendingRequestsByCoach[item.id];
+    const existingRequestStatus = existingRequest?.status;
+    const isRequesting = requestingCoachId === item.id;
+    const isPending = !relationshipActive && (existingRequestStatus === 'pending' || isRequesting);
+    const isAccepted = !relationshipActive && existingRequestStatus === 'accepted';
+    const wasDeclined = !relationshipActive && existingRequestStatus === 'declined';
+
+    let requestButtonLabel = 'Request Coach';
+    if (relationshipActive) {
+      requestButtonLabel = 'Connected';
+    } else if (isRequesting) {
+      requestButtonLabel = 'Sending...';
+    } else if (isPending) {
+      requestButtonLabel = 'Request Sent';
+    } else if (isAccepted) {
+      requestButtonLabel = 'Accepted';
+    }
+
+    const requestDisabled = relationshipActive || isRequesting || isPending || isAccepted;
+    const requestButtonColor = relationshipActive ? ACCENT : isAccepted ? '#16a34a' : isPending ? '#4b5563' : '#2563eb';
+    const requestTextColor = relationshipActive ? BG : isAccepted ? '#0B1220' : '#ffffff';
+    const requestIconName = relationshipActive ? 'checkmark' : isAccepted ? 'checkmark-done' : (isPending || isRequesting) ? 'time' : 'person-add';
+    const requestIconColor = requestDisabled && !relationshipActive ? '#ffffff' : requestTextColor;
+
+    let requestStatusNote = null;
+    if (relationshipActive) {
+      requestStatusNote = 'You are already connected with this coach.';
+    } else if (isPending && !isRequesting) {
+      requestStatusNote = 'Request sent. Waiting for the coach to respond.';
+    } else if (isAccepted) {
+      requestStatusNote = 'Accepted! Check your notifications to get started.';
+    } else if (wasDeclined) {
+      requestStatusNote = 'Your previous request was declined. You can send a new request.';
+    }
+
     return (
       <TouchableOpacity
         activeOpacity={0.9}
@@ -369,11 +560,13 @@ export default function CoachMarketplaceScreen({ navigation }) {
                   </TouchableOpacity>
                   
                   <TouchableOpacity
-                    style={[styles.whatsappButton, { backgroundColor: '#2563eb' }]}
+                    style={[styles.whatsappButton, { backgroundColor: requestButtonColor }]}
                     onPress={() => requestCoach(item)}
+                    disabled={requestDisabled}
+                    activeOpacity={requestDisabled ? 0.9 : 0.7}
                   >
-                    <Ionicons name="person-add" size={18} color="#fff" />
-                    <Text style={[styles.whatsappText, { color: '#fff' }]}>Request Coach</Text>
+                    <Ionicons name={requestIconName} size={18} color={requestIconColor} />
+                    <Text style={[styles.whatsappText, { color: requestTextColor }]}>{requestButtonLabel}</Text>
                   </TouchableOpacity>
                 </>
               )}
@@ -386,7 +579,20 @@ export default function CoachMarketplaceScreen({ navigation }) {
                 <Text style={[styles.whatsappText,{ color:ACCENT }]}>View Profile</Text>
               </TouchableOpacity>
             </View>
-            
+
+
+            {!isOwnProfile && requestStatusNote && (
+              <Text
+                style={[
+                  styles.requestStatusText,
+                  (relationshipActive || isAccepted) ? { color: ACCENT } : null,
+                  wasDeclined ? { color: '#f87171' } : null,
+                ]}
+              >
+                {requestStatusNote}
+              </Text>
+            )}
+
             <Text style={styles.sectionTitle}>Reviews</Text>
             {reviews.length === 0 ? (
               <Text style={{ color: MUTED, fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>
@@ -708,6 +914,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   whatsappText: { color: BG, fontWeight: "800", marginLeft: 8 },
+  requestStatusText: { color: MUTED, fontSize: 12, marginTop: -4, marginBottom: 12 },
 
   sectionTitle: { color: TEXT, fontWeight: "800", marginTop: 4, marginBottom: 8 },
   reviewItem: {

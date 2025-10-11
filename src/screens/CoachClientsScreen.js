@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
     View,
     Text,
@@ -11,13 +11,14 @@ import {
     TextInput,
     FlatList,
     Dimensions,
+    Alert,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useCoachProfile } from "../hooks/useCoachProfile";
 import { db } from '../lib/firebaseApp';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, getDocs, doc, deleteDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
 const COLORS = {
@@ -50,23 +51,39 @@ export default function CoachClientsScreen({ navigation }) {
     const [loading, setLoading] = useState(true);
     const screenWidth = Dimensions.get("window").width;
     const coach = useCoachProfile();
+    
+    console.log('[CoachClientsScreen] Render - coach state:', {
+      loading: coach.loading,
+      exists: coach.exists,
+      coachId: coach.coach?.id,
+      coachName: coach.coach?.name
+    });
 
     // Set up real-time listener for UserCoachRelationships
     useEffect(() => {
-        if (!coach?.id) {
-            console.log('[CoachClientsScreen] No coach ID available yet, waiting...');
+        console.log('[CoachClientsScreen] Effect triggered - coach.id:', coach.coach?.id, 'loading:', coach.loading, 'exists:', coach.exists);
+        
+        if (coach.loading) {
+            console.log('[CoachClientsScreen] Coach still loading, waiting...');
+            return;
+        }
+        
+        if (!coach.exists || !coach.coach?.id) {
+            console.log('[CoachClientsScreen] No coach data available');
             console.log('[CoachClientsScreen] Coach object:', coach);
             setLoading(false);
+            setClients([]);
             return;
         }
 
         // Use the authentication UID for consistency with security rules (same as dashboard)
         const auth = getAuth();
         const authUid = auth.currentUser?.uid;
-        console.log('[CoachClientsScreen] Setting up UserCoachRelationships listener for coach ID:', coach.id, 'auth UID:', authUid);
+        const coachDocId = coach.coach?.id || coach.id || authUid;
+        console.log('[CoachClientsScreen] Setting up UserCoachRelationships listener for coach ID:', coachDocId, 'auth UID:', authUid);
         
         const relationshipsRef = collection(db, 'UserCoachRelationships');
-        const q = query(relationshipsRef, where('coach.id', '==', authUid));
+        const q = query(relationshipsRef, where('coach.id', '==', coachDocId || authUid));
         
         const unsubscribe = onSnapshot(q, (snapshot) => {
             console.log('[CoachClientsScreen] UserCoachRelationships query result, docs found:', snapshot.docs.length);
@@ -119,7 +136,7 @@ export default function CoachClientsScreen({ navigation }) {
             setLoading(false);
         });
         return unsubscribe;
-    }, [coach?.id, getAuth().currentUser?.uid]);
+    }, [coach.coach?.id, coach.loading, coach.exists]);
 
 
     const filteredClients = useMemo(() => {
@@ -161,7 +178,7 @@ export default function CoachClientsScreen({ navigation }) {
         try {
             console.log('[CLEANUP] Starting cleanup of all relationships...');
             
-            const relationshipsRef = collection(db, 'coachClientRelationships');
+            const relationshipsRef = collection(db, 'UserCoachRelationships');
             const snapshot = await getDocs(relationshipsRef);
             
             console.log(`[CLEANUP] Found ${snapshot.docs.length} relationships to delete`);
@@ -169,7 +186,7 @@ export default function CoachClientsScreen({ navigation }) {
             // Delete each relationship
             const deletePromises = snapshot.docs.map(relationshipDoc => {
                 console.log(`[CLEANUP] Deleting relationship: ${relationshipDoc.id}`, relationshipDoc.data());
-                return deleteDoc(doc(db, 'coachClientRelationships', relationshipDoc.id));
+                return deleteDoc(doc(db, 'UserCoachRelationships', relationshipDoc.id));
             });
             
             await Promise.all(deletePromises);
@@ -181,6 +198,35 @@ export default function CoachClientsScreen({ navigation }) {
             console.error('[CLEANUP] Error cleaning up relationships:', error);
             Alert.alert("Error", "Failed to remove relationships. Please check permissions.");
         }
+    };
+
+    const removeClientRelationship = useCallback(async (client) => {
+        try {
+            if (!client?.relationshipId) {
+                Alert.alert('Missing Relationship', 'Unable to remove this client because the relationship reference is missing.');
+                return;
+            }
+
+            console.log('[CLEANUP] Removing relationship id:', client.relationshipId, 'for client:', client.name);
+            await deleteDoc(doc(db, 'UserCoachRelationships', client.relationshipId));
+            const removedName = client.name || 'Client';
+            Alert.alert('Client Removed', removedName + ' has been removed from your roster.');
+        } catch (error) {
+            console.error('[CLEANUP] Error removing individual relationship:', error);
+            Alert.alert('Error', 'Failed to remove this client. Please try again.');
+        }
+    }, []);
+
+    const confirmRemoveClient = (client) => {
+        const displayName = client.name || 'this client';
+        Alert.alert(
+            'Remove Client',
+            'Are you sure you want to remove ' + displayName + ' from your roster?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => removeClientRelationship(client) },
+            ],
+        );
     };
 
     const renderClientCard = ({ item }) => (

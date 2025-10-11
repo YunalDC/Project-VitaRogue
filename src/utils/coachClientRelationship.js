@@ -1,6 +1,5 @@
 import { db } from '../lib/firebaseApp';
-import { getAuth } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, updateDoc, getDocs, query, where } from 'firebase/firestore';
 
 /**
  * Creates a new coach-client relationship in Firestore
@@ -20,22 +19,125 @@ export const createCoachClientRelationship = async ({
   try {
     console.log('[CoachClientRelationship] Creating relationship between coach:', coachId, 'and client:', clientId);
 
-    // Validate required parameters
     if (!coachId || !clientId) {
       throw new Error('Both coachId and clientId are required');
     }
 
-    // Get client data from users collection
-    const clientDoc = await getDoc(doc(db, 'users', clientId));
-    if (!clientDoc.exists()) {
-      throw new Error('Client user data not found');
-    }
-    const clientData = clientDoc.data();
-    
-    console.log('[CoachClientRelationship] Raw client data:', JSON.stringify(clientData, null, 2));
-    console.log('[CoachClientRelationship] Client age:', clientData.age, typeof clientData.age);
+    const nowISO = new Date().toISOString();
 
-    // Get coach data from users collection (as backup if not provided)
+    const relationshipsRef = collection(db, 'UserCoachRelationships');
+    let existingRelationshipDoc = null;
+
+    try {
+      const existingQuery = query(
+        relationshipsRef,
+        where('coachId', '==', coachId),
+        where('clientId', '==', clientId)
+      );
+      const existingSnapshot = await getDocs(existingQuery);
+      if (!existingSnapshot.empty) {
+        existingRelationshipDoc = existingSnapshot.docs[0];
+      }
+    } catch (error) {
+      console.warn('[CoachClientRelationship] Unable to query existing relationship by coachId/clientId', error);
+    }
+
+    if (!existingRelationshipDoc) {
+      try {
+        const fallbackQuery = query(relationshipsRef, where('coach.id', '==', coachId));
+        const fallbackSnapshot = await getDocs(fallbackQuery);
+        fallbackSnapshot.docs.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (!existingRelationshipDoc && data.client?.id === clientId) {
+            existingRelationshipDoc = docSnap;
+          }
+        });
+      } catch (fallbackError) {
+        console.warn('[CoachClientRelationship] Fallback relationship query failed', fallbackError);
+        if (fallbackError.code === 'failed-precondition') {
+          try {
+            const allSnapshot = await getDocs(relationshipsRef);
+            allSnapshot.docs.forEach((docSnap) => {
+              const data = docSnap.data();
+              if (!existingRelationshipDoc && data.coach?.id === coachId && data.client?.id === clientId) {
+                existingRelationshipDoc = docSnap;
+              }
+            });
+          } catch (fullScanError) {
+            console.warn('[CoachClientRelationship] Full scan fallback failed', fullScanError);
+          }
+        }
+      }
+    }
+
+    if (existingRelationshipDoc) {
+      const existingData = existingRelationshipDoc.data();
+      const existingStatus = existingData.status || 'active';
+      const relationshipRef = doc(db, 'UserCoachRelationships', existingRelationshipDoc.id);
+
+      if (existingStatus !== 'active') {
+        const reactivationUpdates = {
+          status: 'active',
+          endDate: null,
+          endReason: null,
+          lastUpdated: nowISO,
+          relationshipSource: requestData.source || existingData.relationshipSource || 'coach_request',
+        };
+        await updateDoc(relationshipRef, reactivationUpdates);
+
+        return {
+          success: true,
+          relationshipId: existingRelationshipDoc.id,
+          data: { ...existingData, ...reactivationUpdates },
+          alreadyExisted: true,
+          reactivated: true,
+        };
+      }
+
+      return {
+        success: true,
+        relationshipId: existingRelationshipDoc.id,
+        data: existingData,
+        alreadyExisted: true,
+      };
+    }
+
+    let clientData = null;
+    try {
+      const clientDocRef = doc(db, 'users', clientId);
+      const clientDoc = await getDoc(clientDocRef);
+      if (clientDoc.exists()) {
+        clientData = clientDoc.data();
+      }
+    } catch (clientError) {
+      console.warn('[CoachClientRelationship] Failed to read client profile', clientError);
+    }
+
+    const fallbackClient = requestData.clientFallback || {};
+    if (!clientData) {
+      console.warn('[CoachClientRelationship] Client user data not found; using fallback information if available');
+      clientData = {};
+    }
+    const mergedClientData = { ...fallbackClient, ...clientData };
+
+    const clientName = mergedClientData.name || mergedClientData.displayName || requestData.requesterName || 'Client';
+    const clientEmail = mergedClientData.email || requestData.requesterEmail || null;
+    const clientPhoto = mergedClientData.photoURL || mergedClientData.avatar || requestData.requesterPhotoURL || 'https://placehold.co/200x200/png';
+
+    const clientFitnessGoals = Array.isArray(mergedClientData.fitnessGoals) && mergedClientData.fitnessGoals.length > 0
+      ? mergedClientData.fitnessGoals
+      : Array.isArray(requestData.requesterFitnessGoals) && requestData.requesterFitnessGoals.length > 0
+        ? requestData.requesterFitnessGoals
+        : (requestData.requesterWeightGoal ? [requestData.requesterWeightGoal] : []);
+    const clientWeightGoal = mergedClientData.weightGoal || requestData.requesterWeightGoal || clientFitnessGoals[0] || 'General Fitness';
+
+    console.log('[CoachClientRelationship] Resolved client data:', {
+      name: clientName,
+      email: clientEmail,
+      weightGoal: clientWeightGoal,
+      fitnessGoals: clientFitnessGoals,
+    });
+
     let completeCoachData = coachData;
     if (!coachData.name || !coachData.email) {
       const coachDoc = await getDoc(doc(db, 'users', coachId));
@@ -45,15 +147,14 @@ export const createCoachClientRelationship = async ({
           name: coachData.name || dbCoachData.name || dbCoachData.displayName,
           email: coachData.email || dbCoachData.email,
           photoURL: coachData.photoURL || dbCoachData.photoURL || dbCoachData.avatar,
-          ...coachData
+          ...coachData,
         };
       }
     }
 
-    // Helper function to filter out undefined values
     const filterUndefined = (obj) => {
       const filtered = {};
-      Object.keys(obj).forEach(key => {
+      Object.keys(obj).forEach((key) => {
         if (obj[key] !== undefined && obj[key] !== null) {
           if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
             const nestedFiltered = filterUndefined(obj[key]);
@@ -68,68 +169,74 @@ export const createCoachClientRelationship = async ({
       return filtered;
     };
 
-    // Create the relationship document
     const relationshipRef = doc(collection(db, 'UserCoachRelationships'));
     const relationshipData = {
+      coachId,
+      clientId,
       coach: filterUndefined({
         id: coachId,
         name: completeCoachData.name || 'Coach',
         email: completeCoachData.email,
-        photoURL: completeCoachData.photoURL || 'https://placehold.co/200x200/png'
+        photoURL: completeCoachData.photoURL || 'https://placehold.co/200x200/png',
       }),
       client: filterUndefined({
         id: clientId,
-        name: clientData.name || clientData.displayName || 'Client',
-        email: clientData.email,
-        photoURL: clientData.photoURL || clientData.avatar || 'https://placehold.co/200x200/png',
-        ...(clientData.age !== undefined && { age: clientData.age }),
-        ...(clientData.gender !== undefined && { gender: clientData.gender }),
-        ...(clientData.heightCm !== undefined && { heightCm: clientData.heightCm }),
-        ...(clientData.weightKg !== undefined && { weightKg: clientData.weightKg }),
-        ...(clientData.fitnessLevel !== undefined && { fitnessLevel: clientData.fitnessLevel }),
-        ...(clientData.weightGoal !== undefined && { weightGoal: clientData.weightGoal }),
-        fitnessGoals: clientData.fitnessGoals || []
+        name: clientName,
+        email: clientEmail,
+        photoURL: clientPhoto,
+        ...(mergedClientData.age !== undefined && { age: mergedClientData.age }),
+        ...(mergedClientData.gender !== undefined && { gender: mergedClientData.gender }),
+        ...(mergedClientData.heightCm !== undefined && { heightCm: mergedClientData.heightCm }),
+        ...(mergedClientData.weightKg !== undefined && { weightKg: mergedClientData.weightKg }),
+        ...(mergedClientData.fitnessLevel !== undefined && { fitnessLevel: mergedClientData.fitnessLevel }),
+        weightGoal: clientWeightGoal,
+        fitnessGoals: clientFitnessGoals,
       }),
       status: 'active',
-      startDate: new Date().toISOString(),
-      createdAt: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
-      lastUpdated: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
-      currentGoals: clientData.fitnessGoals || [clientData.weightGoal || 'General Fitness'],
+      startDate: nowISO,
+      createdAt: nowISO,
+      lastUpdated: nowISO,
+      currentGoals: clientFitnessGoals.length > 0 ? clientFitnessGoals : [clientWeightGoal],
       currentPlan: 'Personalized Training Program',
       progress: {
         percentage: 0,
         goalsAchieved: 0,
-        totalGoals: (clientData.fitnessGoals || []).length || 1,
+        totalGoals: clientFitnessGoals.length || 1,
         weightChange: 0,
-        lastProgressUpdate: new Date().toISOString()
+        lastProgressUpdate: nowISO,
       },
       sessions: {
         total: 0,
         completed: 0,
         upcoming: 0,
         lastSession: null,
-        nextSession: null
+        nextSession: null,
       },
       coachNotes: requestData.message || 'New client onboarded',
-      lastContact: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
+      lastContact: nowISO,
       lastMessage: 'Welcome! Looking forward to working together!',
-      // Additional metadata
       relationshipSource: requestData.source || 'coach_request',
       onboardingComplete: false,
       communicationPreferences: {
         notifications: true,
         sessionReminders: true,
-        progressUpdates: true
-      }
+        progressUpdates: true,
+      },
     };
 
-    console.log('[CoachClientRelationship] Writing relationship data:', relationshipData);
-    console.log('[CoachClientRelationship] Client data in final object:', relationshipData.client);
-    console.log('[CoachClientRelationship] Checking for undefined values in client:');
-    Object.keys(relationshipData.client).forEach(key => {
-      console.log(`  ${key}: ${relationshipData.client[key]} (${typeof relationshipData.client[key]})`);
+    const requestMetadata = filterUndefined({
+      message: requestData.message,
+      source: requestData.source,
+      notificationId: requestData.notificationId,
+      requesterId: requestData.requesterId || requestData.senderId || mergedClientData.id || clientId,
+      requestedAt: requestData.requestedAt,
     });
-    
+    if (Object.keys(requestMetadata).length > 0) {
+      relationshipData.requestMetadata = requestMetadata;
+    }
+
+    console.log('[CoachClientRelationship] Writing relationship data:', relationshipData);
+
     await setDoc(relationshipRef, relationshipData);
 
     console.log('[CoachClientRelationship] Successfully created relationship with ID:', relationshipRef.id);
@@ -137,14 +244,14 @@ export const createCoachClientRelationship = async ({
     return {
       success: true,
       relationshipId: relationshipRef.id,
-      data: relationshipData
+      data: relationshipData,
     };
 
   } catch (error) {
     console.error('[CoachClientRelationship] Error creating relationship:', error);
     return {
       success: false,
-      error: error.message
+      error: error.message,
     };
   }
 };

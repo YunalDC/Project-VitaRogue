@@ -84,62 +84,125 @@ export default function CoachNotificationsScreen({ navigation }) {
     try {
       console.log('[CoachNotifications] Accepting coach request:', notification);
       console.log('[CoachNotifications] Current coach profile:', coach);
-      
-      // Use the authentication UID for consistency with security rules
+
       const auth = getAuth();
       const authUid = auth.currentUser?.uid;
       const clientId = notification.senderId;
-      
+
       if (!authUid) {
         throw new Error('No authenticated user found');
       }
-      
+
       console.log('[CoachNotifications] Creating relationship with authUid:', authUid, 'clientId:', clientId);
-      
-      // Create the coach-client relationship using the utility function
+
+      const requestPayload = notification?.data || {};
+      const fallbackClientProfile = { ...(requestPayload.clientFallback || {}) };
+      if (!fallbackClientProfile.name && notification.senderName) {
+        fallbackClientProfile.name = notification.senderName;
+      }
+      if (!fallbackClientProfile.email && requestPayload.requesterEmail) {
+        fallbackClientProfile.email = requestPayload.requesterEmail;
+      }
+      if (!fallbackClientProfile.photoURL && requestPayload.requesterPhotoURL) {
+        fallbackClientProfile.photoURL = requestPayload.requesterPhotoURL;
+      }
+      if (!fallbackClientProfile.weightGoal && requestPayload.requesterWeightGoal) {
+        fallbackClientProfile.weightGoal = requestPayload.requesterWeightGoal;
+      }
+      if (!Array.isArray(fallbackClientProfile.fitnessGoals)) {
+        if (Array.isArray(requestPayload.requesterFitnessGoals)) {
+          fallbackClientProfile.fitnessGoals = requestPayload.requesterFitnessGoals;
+        } else if (requestPayload.requesterWeightGoal) {
+          fallbackClientProfile.fitnessGoals = [requestPayload.requesterWeightGoal];
+        } else {
+          fallbackClientProfile.fitnessGoals = [];
+        }
+      }
+
+      const requestedAtIso = (() => {
+        const createdAt = notification.createdAt;
+        if (createdAt?.toDate) {
+          try {
+            return createdAt.toDate().toISOString();
+          } catch (error) {
+            console.warn('[CoachNotifications] Failed to convert notification.createdAt via toDate()', error);
+          }
+        }
+        if (typeof createdAt === 'string' || typeof createdAt === 'number') {
+          const parsed = new Date(createdAt);
+          if (!Number.isNaN(parsed.getTime())) {
+            return parsed.toISOString();
+          }
+        }
+        return new Date().toISOString();
+      })();
+
       const relationshipResult = await createCoachClientRelationship({
         coachId: authUid,
         clientId: clientId,
         coachData: {
           name: coach?.name || 'Coach',
           email: coach?.email,
-          photoURL: coach?.photoURL || coach?.avatar
+          photoURL: coach?.photoURL || coach?.avatar,
         },
         requestData: {
           message: notification.message || 'Coach request accepted',
-          source: 'notification_screen'
-        }
+          source: 'notification_screen',
+          notificationId: notification.id,
+          requestedAt: requestedAtIso,
+          requesterId: notification.senderId,
+          requesterName: notification.senderName,
+          requesterEmail: requestPayload.requesterEmail,
+          requesterPhotoURL: requestPayload.requesterPhotoURL,
+          requesterFitnessGoals: requestPayload.requesterFitnessGoals,
+          requesterWeightGoal: requestPayload.requesterWeightGoal,
+          clientFallback: fallbackClientProfile,
+        },
       });
 
       if (!relationshipResult.success) {
         throw new Error(relationshipResult.error);
       }
 
-      console.log('[CoachNotifications] Created coach-client relationship successfully:', relationshipResult.relationshipId);
+      const { relationshipId } = relationshipResult;
+      const alreadyExisted = relationshipResult.alreadyExisted;
+      const reactivated = relationshipResult.reactivated;
 
-      // Update notification status
       const notificationRef = doc(db, 'notifications', notification.id);
-      await updateDoc(notificationRef, { 
+      await updateDoc(notificationRef, {
         status: 'accepted',
         respondedAt: new Date().toISOString(),
-        relationshipId: relationshipResult.relationshipId
+        relationshipId,
       });
 
-      // Create acceptance notification for client
+      const coachName = coach?.name || 'Your Coach';
+      const clientNotificationMessage = alreadyExisted && !reactivated
+        ? coachName + ' confirmed your coaching relationship is already active.'
+        : reactivated
+          ? coachName + ' has welcomed you back as an active client.'
+          : 'Great news! ' + coachName + ' has accepted your request and is now your personal coach.';
+
       const clientNotificationRef = doc(collection(db, 'notifications'));
       await setDoc(clientNotificationRef, {
         type: 'coach_request_accepted',
         recipientId: notification.senderId,
         senderId: authUid,
-        senderName: coach?.name || 'Your Coach',
-        title: 'Coach Request Accepted!',
-        message: `Great news! ${coach?.name || 'Your coach'} has accepted your request and is now your personal coach.`,
-        createdAt: new Date().toISOString(), // Use ISO string instead of serverTimestamp for now
+        senderName: coachName,
+        title: alreadyExisted && !reactivated ? 'Connection Confirmed' : 'Coach Request Accepted!',
+        message: clientNotificationMessage,
+        createdAt: new Date().toISOString(),
         read: false,
-        relationshipId: relationshipResult.relationshipId
+        relationshipId,
       });
 
-      Alert.alert('Success', `You have accepted ${notification.senderName} as your client!`);
+      const alertTitle = alreadyExisted && !reactivated ? 'Already Connected' : 'Success';
+      const alertMessage = alreadyExisted && !reactivated
+        ? notification.senderName + ' is already listed as your client.'
+        : reactivated
+          ? notification.senderName + ' has been reactivated as an active client.'
+          : 'You have accepted ' + notification.senderName + ' as your client!';
+
+      Alert.alert(alertTitle, alertMessage);
     } catch (error) {
       console.error('Accept coach request error:', error);
       Alert.alert('Error', 'Failed to accept the request. Please try again.');
